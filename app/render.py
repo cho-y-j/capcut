@@ -72,3 +72,17 @@ def render_jumpcut(input_path: str, segments: Sequence[Segment], output_path: st
 
 def total_kept(segments: Sequence[Segment]) -> float:
     return sum(s.dur for s in segments)
+
+
+def burn_subtitles(video: str, ass_path: str, out_path: str) -> str:
+    """ass 자막을 영상에 번인."""
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    cmd = [config.FFMPEG, "-y", "-i", video,
+           "-vf", f"subtitles='{ass_path}'",
+           "-c:v", "libx264", "-preset", config.PRESET, "-crf", str(config.CRF),
+           "-pix_fmt", "yuv420p", "-c:a", "copy",
+           "-movflags", "+faststart", out_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"자막 번인 실패:\n{proc.stderr[-1800:]}")
+    return out_path

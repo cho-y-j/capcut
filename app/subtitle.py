@@ -1,0 +1,149 @@
+"""자막 생성 — 한국어 의존명사 청크 줄바꿈 + .srt / .ass(번인).
+
+핵심: 어절 단위로만 끊으면 "수 있다 / 것 같다" 처럼 의존명사가 줄 맨앞에 떨어져
+어색하다. 의존명사는 앞 어절과 같은 줄에 유지한다.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import List
+
+from . import config
+
+# 줄 맨앞에 오면 어색한 의존명사 (앞말과 붙임)
+DEP_NOUNS = {
+    "것", "수", "때", "줄", "뿐", "데", "바", "등", "채", "척", "만큼",
+    "대로", "듯", "적", "겸", "지", "리", "나름", "터", "셈", "통",
+}
+_JOSA = "은는이가을를의에도만과와로으로께서부터까지에서한테보다처럼"
+
+
+def _strip_josa(word: str) -> str:
+    if len(word) > 1 and word[-1] in _JOSA:
+        return word[:-1]
+    return word
+
+
+def is_dep_noun(word: str) -> bool:
+    return word in DEP_NOUNS or _strip_josa(word) in DEP_NOUNS
+
+
+def chunk_lines(text: str, max_chars: int = 18) -> List[str]:
+    """의존명사 규칙을 지키며 max_chars 기준으로 줄 나눔."""
+    words = text.split()
+    lines: List[str] = []
+    cur = ""
+    for w in words:
+        if cur and is_dep_noun(w):           # 의존명사 → 절대 줄 앞으로 안 보냄
+            cur = f"{cur} {w}"
+        elif not cur:
+            cur = w
+        elif len(cur) + 1 + len(w) <= max_chars:
+            cur = f"{cur} {w}"
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+@dataclass
+class Cue:
+    start: float
+    end: float
+    text: str          # 줄바꿈은 \n
+
+
+def build_cues(segments: List[dict], max_chars: int = 18, max_lines: int = 2) -> List[Cue]:
+    """whisper 세그먼트 → 자막 큐. 줄이 max_lines 초과면 시간 비례로 분할."""
+    cues: List[Cue] = []
+    for seg in segments:
+        text = seg["text"].strip()
+        if not text:
+            continue
+        lines = chunk_lines(text, max_chars)
+        s, e = float(seg["start"]), float(seg["end"])
+        if len(lines) <= max_lines:
+            cues.append(Cue(s, e, "\n".join(lines)))
+            continue
+        # 너무 길면 max_lines 묶음으로 쪼개고 글자수 비례로 시간 배분
+        groups = [lines[i:i + max_lines] for i in range(0, len(lines), max_lines)]
+        total = sum(len("".join(g)) for g in groups) or 1
+        t = s
+        for g in groups:
+            frac = len("".join(g)) / total
+            dur = (e - s) * frac
+            cues.append(Cue(t, t + dur, "\n".join(g)))
+            t += dur
+    return cues
+
+
+def remap_cues(cues: List[Cue], kept_segments) -> List[Cue]:
+    """원본 타임라인 큐 → 점프컷 후 압축된 타임라인으로 재매핑.
+
+    컷으로 잘린 구간을 건너뛰며, 한 큐가 컷을 가로지르면 조각으로 나뉜다.
+    """
+    offs = []
+    acc = 0.0
+    for s in kept_segments:
+        offs.append((s.start, s.end, acc))
+        acc += s.dur
+    out: List[Cue] = []
+    for c in cues:
+        for ss, se, off in offs:
+            a = max(c.start, ss)
+            b = min(c.end, se)
+            if b > a:
+                out.append(Cue(off + (a - ss), off + (b - ss), c.text))
+    return out
+
+
+def _ts_srt(t: float) -> str:
+    h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60)
+    ms = int(round((t - int(t)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def write_srt(cues: List[Cue], path: str) -> str:
+    lines = []
+    for i, c in enumerate(cues, 1):
+        lines.append(str(i))
+        lines.append(f"{_ts_srt(c.start)} --> {_ts_srt(c.end)}")
+        lines.append(c.text)
+        lines.append("")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return path
+
+
+def _ts_ass(t: float) -> str:
+    h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
+    return f"{h:d}:{m:02d}:{s:05.2f}"
+
+
+def write_ass(cues: List[Cue], path: str, *, play_w: int = 1920, play_h: int = 1080,
+              font: str = "NanumGothic", font_size: int = 56) -> str:
+    """번인용 ASS. 외곽선+그림자, 하단 안전영역."""
+    margin_v = int(play_h * 0.08)
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {play_w}
+PlayResY: {play_h}
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font},{font_size},&H00FFFFFF,&H00000000,&H64000000,1,1,3,2,2,60,60,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    rows = []
+    for c in cues:
+        txt = c.text.replace("\n", "\\N")
+        rows.append(f"Dialogue: 0,{_ts_ass(c.start)},{_ts_ass(c.end)},Default,,0,0,0,,{txt}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(header + "\n".join(rows) + "\n")
+    return path

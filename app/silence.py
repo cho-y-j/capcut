@@ -33,6 +33,21 @@ def probe_duration(path: str) -> float:
     return float(out.stdout.strip())
 
 
+def probe_video(path: str) -> tuple[int, int, float]:
+    """(width, height, fps) 반환."""
+    out = subprocess.run(
+        [config.FFPROBE, "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "default=noprint_wrappers=1:nokey=1", path],
+        capture_output=True, text=True, check=True,
+    )
+    lines = out.stdout.strip().splitlines()
+    w, h = int(lines[0]), int(lines[1])
+    num, den = lines[2].split("/")
+    fps = float(num) / float(den) if float(den) else 30.0
+    return w, h, fps
+
+
 def detect_silences(path: str, noise_db: float | None = None,
                     min_silence: float | None = None) -> List[Tuple[float, float]]:
     """무음 구간 [(start, end), ...] 반환."""
