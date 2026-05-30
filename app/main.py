@@ -99,6 +99,15 @@ async def process(id: str) -> StreamingResponse:
     return StreamingResponse(_sse(id), media_type="text/event-stream")
 
 
+@app.get("/api/media")
+async def media(id: str):
+    """원본 업로드 영상 서빙 — 브라우저 미리보기/편집용."""
+    job = JOBS.get(id)
+    if not job or "path" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    return FileResponse(job["path"])
+
+
 @app.post("/api/export")
 async def export(req: Request) -> JSONResponse:
     body = await req.json()
@@ -107,11 +116,33 @@ async def export(req: Request) -> JSONResponse:
         return JSONResponse({"error": "unknown job"}, status_code=404)
     ranges = [(float(a), float(b)) for a, b in body["keep"]]
     subtitles = bool(body.get("subtitles", True))
+    cues = body.get("cues")  # 사용자가 수정한 자막(원본 타임라인 기준), 없으면 None
     out = str(config.OUTPUT_DIR / f"{body['id']}_cut.mp4")
     import asyncio
     await asyncio.to_thread(pipeline.export_mode_a, job["path"], ranges, out,
-                            subtitles=subtitles)
+                            subtitles=subtitles, cues=cues)
     return JSONResponse({"url": f"/out/{Path(out).name}"})
+
+
+@app.post("/api/capcut")
+async def capcut(req: Request) -> JSONResponse:
+    """편집 결과를 캡컷 드래프트로 출력 (Win/Mac 핸드오프)."""
+    from . import draft, subtitle
+    from .silence import Segment
+    body = await req.json()
+    job = JOBS.get(body["id"])
+    if not job or job["mode"] != "a":
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    ranges = [(float(a), float(b)) for a, b in body["keep"]]
+    cues = body.get("cues") or []
+    cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
+                for c in cues if c.get("text", "").strip()]
+    cue_objs = subtitle.remap_cues(cue_objs, [Segment(a, b) for a, b in ranges])
+    import asyncio
+    name = f"{body['id']}_capcut"
+    ddir = await asyncio.to_thread(draft.build_capcut, job["path"], ranges, name,
+                                   cues=cue_objs, out_root=str(config.OUTPUT_DIR))
+    return JSONResponse({"dir": ddir})
 
 
 @app.get("/api/voices")

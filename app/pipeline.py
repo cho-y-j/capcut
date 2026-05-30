@@ -62,8 +62,13 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
 
 def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
                   out_path: str, *, subtitles: bool = True,
+                  cues: Sequence[dict] | None = None,
                   model: str | None = None, normalize: bool = True) -> str:
-    """사용자 확정 보존구간으로 점프컷 추출 (+ 자막 번인)."""
+    """사용자 확정 보존구간으로 점프컷 추출 (+ 자막 번인).
+
+    cues 가 주어지면(사용자가 수정한 자막) 그것을 쓰고, 없으면 ASR 캐시에서 재생성.
+    cues 의 시간은 **원본 타임라인** 기준 → 점프컷 후 타임라인으로 remap.
+    """
     segs = [Segment(float(a), float(b)) for a, b in kept_ranges if b > a]
     if not segs:
         raise ValueError("보존 구간이 비었습니다.")
@@ -72,11 +77,15 @@ def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
 
     tmp = str(Path(out_path).with_suffix(".tmp.mp4"))
     render.render_jumpcut(input_path, segs, tmp, normalize=normalize)
-    tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
-    cues = subtitle.build_cues(tr["segments"])
-    cues = subtitle.remap_cues(cues, segs)
+    if cues is not None:
+        cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
+                    for c in cues if c.get("text", "").strip()]
+    else:
+        tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
+        cue_objs = subtitle.build_cues(tr["segments"])
+    cue_objs = subtitle.remap_cues(cue_objs, segs)
     ass = str(Path(out_path).with_suffix(".ass"))
-    subtitle.write_ass(cues, ass)
+    subtitle.write_ass(cue_objs, ass)
     render.burn_subtitles(tmp, ass, out_path)
     Path(tmp).unlink(missing_ok=True)
     return out_path

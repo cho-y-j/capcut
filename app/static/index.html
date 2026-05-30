@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#0a0a0a; --card:#161616; --line:#262626; --txt:#ededed;
-    --dim:#8a8a8a; --accent:#22c55e; --accent-dim:#16331f;
+    --dim:#8a8a8a; --accent:#22c55e; --accent-dim:#16331f; --red:#ef4444;
     --mono:ui-monospace,SFMono-Regular,Menlo,"Roboto Mono",monospace;
   }
   *{box-sizing:border-box}
@@ -17,59 +17,54 @@
   .wrap{max-width:880px;margin:0 auto;padding:40px 24px 80px}
   header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
   h1{font-size:15px;font-weight:600;letter-spacing:-.2px;margin:0}
-  .chip{font-size:11px;color:var(--dim);border:1px solid var(--line);
-    border-radius:5px;padding:1px 6px}
+  .chip{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
   .sub{color:var(--dim);font-size:12px;margin:0 0 24px}
-  hr{border:0;border-top:1px solid var(--line);margin:24px 0}
+  hr{border:0;border-top:1px solid var(--line);margin:22px 0}
   .tabs{display:flex;gap:4px;margin-bottom:20px}
   .tab{background:transparent;border:1px solid var(--line);color:var(--dim);
-    padding:7px 14px;border-radius:7px;cursor:pointer;font-family:var(--mono);
-    font-size:12px}
+    padding:7px 14px;border-radius:7px;cursor:pointer;font-family:var(--mono);font-size:12px}
   .tab.on{color:var(--txt);border-color:#3a3a3a;background:var(--card)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
-    padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
   .drop{border:1px dashed #333;border-radius:12px;padding:44px 20px;text-align:center;
     color:var(--dim);cursor:pointer;transition:.15s}
   .drop.hot{border-color:var(--accent);color:var(--txt);background:var(--accent-dim)}
   .drop b{color:var(--txt)}
   textarea,select,input[type=text]{width:100%;background:#0e0e0e;border:1px solid var(--line);
-    color:var(--txt);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px}
+    color:var(--txt);border-radius:8px;padding:9px;font-family:var(--mono);font-size:12px}
   textarea{min-height:120px;resize:vertical}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .btn{background:var(--accent);color:#04130a;border:0;border-radius:8px;
-    padding:9px 16px;font-weight:600;cursor:pointer;font-family:var(--mono);font-size:12px}
+  .btn{background:var(--accent);color:#04130a;border:0;border-radius:8px;padding:9px 16px;
+    font-weight:600;cursor:pointer;font-family:var(--mono);font-size:12px}
   .btn:disabled{opacity:.4;cursor:not-allowed}
-  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
-  /* stepper */
+  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line);font-weight:400}
   .steps{display:flex;gap:0;margin:20px 0}
-  .step{flex:1;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+  .step{flex:1;display:flex;flex-direction:column;gap:8px}
   .dot{width:6px;height:6px;border-radius:50%;background:#333;transition:.25s}
   .step.run .dot{background:var(--accent);box-shadow:0 0 0 4px var(--accent-dim)}
   .step.done .dot{background:var(--accent);box-shadow:0 0 8px 1px var(--accent)}
-  .step .lbl{font-size:11px;color:var(--dim)}
-  .step.run .lbl,.step.done .lbl{color:var(--txt)}
+  .step .lbl{font-size:11px;color:var(--dim)} .step.run .lbl,.step.done .lbl{color:var(--txt)}
   .step .det{font-size:10px;color:var(--dim)}
-  /* stats */
   .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
-    border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:16px 0}
-  .stat{background:var(--card);padding:14px 16px}
-  .stat .k{font-size:11px;color:var(--dim)}
-  .stat .v{font-size:20px;font-weight:600;margin-top:2px}
-  /* timeline */
-  .tl{position:relative;height:34px;background:#0e0e0e;border:1px solid var(--line);
-    border-radius:8px;overflow:hidden;margin:14px 0}
-  .seg{position:absolute;top:0;bottom:0;background:var(--accent-dim);
-    border-left:1px solid var(--accent);cursor:pointer}
-  .seg.off{background:#1a1a1a;border-left-color:#333;opacity:.5}
-  .cut{position:absolute;top:0;bottom:0;background:#3a1414;border-left:1px solid #ef4444;
-    cursor:pointer}
-  .cut.off{opacity:.25}
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:14px 0}
+  .stat{background:var(--card);padding:13px 16px}
+  .stat .k{font-size:11px;color:var(--dim)} .stat .v{font-size:19px;font-weight:600;margin-top:2px}
+  video{width:100%;border-radius:10px;border:1px solid var(--line);background:#000;display:block}
+  .tl{position:relative;height:30px;background:var(--accent-dim);border:1px solid var(--accent);
+    border-radius:7px;overflow:hidden;margin:10px 0;cursor:pointer}
+  .cut{position:absolute;top:0;bottom:0;background:#3a1414;border-left:1px solid var(--red);
+    border-right:1px solid var(--red)}
+  .cut.ai{background:#311}.cut.off{opacity:.18}
+  .ph{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none}
+  .pending{position:absolute;top:0;bottom:0;background:rgba(239,68,68,.25);pointer-events:none}
   .script{background:#0e0e0e;border:1px solid var(--line);border-radius:8px;padding:14px;
-    max-height:200px;overflow:auto;color:#cfcfcf;white-space:pre-wrap;font-size:12px}
-  video{width:100%;border-radius:10px;border:1px solid var(--line);margin-top:14px;background:#000}
+    max-height:160px;overflow:auto;color:#cfcfcf;white-space:pre-wrap;font-size:12px}
+  .cue{display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:center;padding:5px 0;
+    border-bottom:1px solid #1d1d1d}
+  .cue .t{color:var(--dim);font-size:11px}
   a.dl{color:var(--accent);text-decoration:none;font-size:12px}
   label.ck{display:inline-flex;gap:7px;align-items:center;color:var(--dim);cursor:pointer}
   .hint{font-size:11px;color:var(--dim)}
+  .kbd{border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--txt)}
   .hide{display:none}
 </style>
 </head>
@@ -77,39 +72,45 @@
 <div class="wrap">
   <header>
     <span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>캡컷 에이전트</h1>
-    <span class="chip num">v0.1.0</span>
+    <h1>캡컷 에이전트</h1><span class="chip num">v0.2.0</span>
   </header>
-  <p class="sub">한국어 영상 자동 편집 · AI가 정리하고, 경계는 당신이 마킹합니다.</p>
+  <p class="sub">리눅스·Win·Mac 어디서나 · 브라우저 안에서 편집 · AI가 정리하고 경계는 당신이 마킹</p>
 
   <div class="tabs">
     <button class="tab on" data-mode="a">토킹 영상 편집</button>
     <button class="tab" data-mode="b">이미지 → 내레이션</button>
   </div>
-
-  <!-- 공용 스테퍼 -->
   <div class="steps hide" id="steps"></div>
 
   <!-- 모드 A -->
   <section id="paneA">
-    <div class="card">
+    <div class="card" id="dropCard">
       <div class="drop" id="dropA"><b>영상을 드롭</b>하거나 클릭해 업로드 · mp4 / mov</div>
       <input type="file" id="fileA" accept="video/*" class="hide">
     </div>
-    <div id="resultA" class="hide">
+
+    <div id="editorA" class="hide">
+      <video id="srcA" controls></video>
+      <div class="hint">재생 중 <span class="kbd">[</span> 컷 시작 · <span class="kbd">]</span> 컷 끝 ·
+        빨강=컷(AI/수동) 클릭으로 토글/삭제 · 타임라인 클릭=이동</div>
+      <div class="tl" id="tlA"><div class="ph" id="phA" style="left:0"></div></div>
       <div class="stats num">
         <div class="stat"><div class="k">입력 길이</div><div class="v" id="aDur">–</div></div>
         <div class="stat"><div class="k">보존 / 제거</div><div class="v" id="aKeep">–</div></div>
-        <div class="stat"><div class="k">컷 후보</div><div class="v" id="aCuts">–</div></div>
+        <div class="stat"><div class="k">컷 (AI+수동)</div><div class="v" id="aCuts">–</div></div>
       </div>
-      <div class="hint">초록 = 보존 · 빨강 = 잔말/반복 컷 제안 · 클릭으로 토글</div>
-      <div class="tl" id="tlA"></div>
-      <div class="row" style="margin:14px 0">
+      <div class="row" style="margin:12px 0">
+        <button class="btn ghost" id="previewA">▶ 컷만 미리보기</button>
         <label class="ck"><input type="checkbox" id="subA" checked> 자막 번인</label>
         <button class="btn" id="exportA">MP4 추출</button>
+        <button class="btn ghost" id="capcutA">캡컷 드래프트</button>
         <a class="dl hide" id="dlA" download>다운로드 ↓</a>
+        <span class="hint" id="msgA"></span>
       </div>
-      <video id="vidA" controls class="hide"></video>
+      <video id="outA" controls class="hide"></video>
+      <hr>
+      <div class="hint" style="margin-bottom:8px">자막 · 클릭해 수정 (ASR 오타 교정 → 추출에 반영)</div>
+      <div id="cuesA"></div>
       <hr>
       <div class="hint" style="margin-bottom:6px">추출된 전체 대본</div>
       <div class="script" id="scriptA"></div>
@@ -120,10 +121,8 @@
   <section id="paneB" class="hide">
     <div class="card">
       <div class="hint" style="margin-bottom:6px">대본 (한 줄 = 한 장면)</div>
-      <textarea id="scriptB" placeholder="안녕하세요, 오늘은 가을 풍경을 소개합니다.&#10;첫 번째 장소는 단풍이 아름다운 산입니다.&#10;두 번째는 호수의 잔잔한 물결입니다."></textarea>
-      <div class="row" style="margin:12px 0 4px">
-        <select id="voiceB" style="max-width:280px"></select>
-      </div>
+      <textarea id="scriptB" placeholder="안녕하세요, 오늘은 가을 풍경을 소개합니다.&#10;첫 번째는 단풍이 아름다운 산입니다.&#10;마지막은 도시의 밤 풍경입니다."></textarea>
+      <div class="row" style="margin:12px 0 4px"><select id="voiceB" style="max-width:280px"></select></div>
       <div class="drop" id="dropB" style="margin-top:12px"><b>사진들을 드롭</b>하거나 클릭 · 장면 순서대로</div>
       <input type="file" id="fileB" accept="image/*" multiple class="hide">
       <div class="hint" id="imgsB" style="margin-top:8px"></div>
@@ -132,167 +131,155 @@
         <a class="dl hide" id="dlB" download>다운로드 ↓</a>
       </div>
     </div>
-    <video id="vidB" controls class="hide"></video>
+    <video id="vidB" controls class="hide" style="margin-top:14px"></video>
   </section>
 </div>
 
 <script>
-const STEP_LABELS = {a:[["silence","무음"],["asr","대본"],["filler","잔말"],["draft","타임라인"]],
-                     b:[["tts","성우"],["slideshow","슬라이드쇼"],["draft","합성"]]};
-const $ = s => document.querySelector(s);
-let mode = "a", stateA = null, imagesB = [];
+const STEP_LABELS={a:[["silence","무음"],["asr","대본"],["filler","잔말"],["draft","타임라인"]],
+                   b:[["tts","성우"],["slideshow","슬라이드쇼"],["draft","합성"]]};
+const $=s=>document.querySelector(s);
+let mode="a", A=null, imagesB=[];
 
-function setMode(m){
-  mode = m;
-  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.dataset.mode===m));
-  $("#paneA").classList.toggle("hide", m!=="a");
-  $("#paneB").classList.toggle("hide", m!=="b");
-  $("#steps").classList.add("hide");
-}
+function setMode(m){mode=m;
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.mode===m));
+  $("#paneA").classList.toggle("hide",m!=="a"); $("#paneB").classList.toggle("hide",m!=="b");
+  $("#steps").classList.add("hide");}
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>setMode(t.dataset.mode));
 
-function renderSteps(m, active){
-  const el = $("#steps"); el.classList.remove("hide"); el.innerHTML="";
-  STEP_LABELS[m].forEach(([k,lbl])=>{
-    const d=document.createElement("div"); d.className="step"; d.dataset.key=k;
-    d.innerHTML=`<div class="dot"></div><div class="lbl">${lbl}</div><div class="det"></div>`;
-    el.appendChild(d);
-  });
-}
-function updateStep(step,status,detail){
-  const d=$(`#steps .step[data-key="${step}"]`); if(!d)return;
-  d.classList.remove("run","done"); d.classList.add(status==="done"?"done":"run");
-  d.querySelector(".det").textContent = detail||"";
-}
+function renderSteps(m){const el=$("#steps");el.classList.remove("hide");el.innerHTML="";
+  STEP_LABELS[m].forEach(([k,lbl])=>{const d=document.createElement("div");d.className="step";
+    d.dataset.key=k;d.innerHTML=`<div class="dot"></div><div class="lbl">${lbl}</div><div class="det"></div>`;
+    el.appendChild(d);});}
+function updateStep(step,status,detail){const d=$(`#steps .step[data-key="${step}"]`);if(!d)return;
+  d.classList.remove("run","done");d.classList.add(status==="done"?"done":"run");
+  d.querySelector(".det").textContent=detail||"";}
+function fmt(t){const m=Math.floor(t/60),s=t%60;return `${m}:${s.toFixed(0).padStart(2,"0")}`;}
 
-function fmt(t){const m=Math.floor(t/60),s=(t%60);return `${m}:${s.toFixed(0).padStart(2,"0")}`;}
-
-// ---- 드롭존 헬퍼 ----
-function wireDrop(drop, input, cb){
-  drop.onclick=()=>input.click();
-  input.onchange=()=>cb(input.files);
+function wireDrop(drop,input,cb){drop.onclick=()=>input.click();input.onchange=()=>cb(input.files);
   ["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("hot")}));
   ["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("hot")}));
-  drop.addEventListener("drop",ev=>cb(ev.dataTransfer.files));
-}
+  drop.addEventListener("drop",ev=>cb(ev.dataTransfer.files));}
 
-// ---- 모드 A ----
-wireDrop($("#dropA"), $("#fileA"), files=>{ if(files[0]) uploadA(files[0]); });
+function processSSE(id,onResult){const es=new EventSource(`/api/process?id=${id}`);
+  es.onmessage=e=>{const d=JSON.parse(e.data);
+    if(d.type==="step")updateStep(d.step,d.status,d.detail);
+    else if(d.type==="result"){es.close();onResult(d.data);}
+    else if(d.type==="error"){es.close();alert("오류: "+d.message);}};}
 
+// ===== 모드 A =====
+wireDrop($("#dropA"),$("#fileA"),files=>{if(files[0])uploadA(files[0]);});
 async function uploadA(file){
-  $("#dropA").innerHTML = `업로드 중 · <b>${file.name}</b>`;
-  const fd=new FormData(); fd.append("file",file);
-  const r=await fetch("/api/upload",{method:"POST",body:fd}); const j=await r.json();
-  $("#dropA").innerHTML = `<b>${j.filename}</b> · 분석 중…`;
+  $("#dropA").innerHTML=`업로드 중 · <b>${file.name}</b>`;
+  const fd=new FormData();fd.append("file",file);
+  const r=await fetch("/api/upload",{method:"POST",body:fd});const j=await r.json();
+  $("#dropA").innerHTML=`<b>${j.filename}</b> · 분석 중…`;
   renderSteps("a");
-  processSSE(j.id,"a", res=>showResultA(j.id,res));
+  processSSE(j.id,res=>initEditor(j.id,res));
 }
 
-function processSSE(id, m, onResult){
-  const es=new EventSource(`/api/process?id=${id}`);
-  es.onmessage=e=>{
-    const d=JSON.parse(e.data);
-    if(d.type==="step") updateStep(d.step,d.status,d.detail);
-    else if(d.type==="result"){ es.close(); onResult(d.data); }
-    else if(d.type==="error"){ es.close(); alert("오류: "+d.message); }
+function initEditor(id,res){
+  A={id,res,duration:res.duration,
+     aiCuts:res.cuts.map(c=>({...c,on:true})),
+     manualCuts:[], pendingStart:null,
+     cues:res.cues.map(c=>({...c})), preview:false};
+  $("#dropCard").classList.add("hide");
+  $("#editorA").classList.remove("hide");
+  const v=$("#srcA"); v.src=`/api/media?id=${id}`;
+  $("#scriptA").textContent=res.script||"(대본 없음)";
+  v.ontimeupdate=()=>{
+    const D=A.duration; $("#phA").style.left=(v.currentTime/D*100)+"%";
+    if(A.preview){const c=activeCutAt(v.currentTime);if(c){v.currentTime=c.end+0.001;}}
   };
+  renderCues(); drawTL(); updateStats();
 }
 
-function subtractRanges(keeps, cuts){
-  let segs = keeps.map(k=>[k.start,k.end]);
-  for(const c of cuts){
-    const out=[];
-    for(const [s,e] of segs){
-      if(c.end<=s||c.start>=e){out.push([s,e]);continue;}
-      if(c.start>s) out.push([s,Math.max(s,c.start)]);
-      if(c.end<e) out.push([Math.min(e,c.end),e]);
-    }
-    segs=out.filter(([s,e])=>e-s>0.02);
-  }
-  return segs;
-}
+function activeCuts(){return [...A.aiCuts.filter(c=>c.on),...A.manualCuts];}
+function activeCutAt(t){return activeCuts().find(c=>t>=c.start&&t<c.end);}
 
-function showResultA(id, res){
-  stateA = {id, res, keepOn: res.keep.map(()=>true), cutOn: res.cuts.map(()=>true)};
-  $("#resultA").classList.remove("hide");
-  const kept = res.keep.reduce((a,k)=>a+(k.end-k.start),0);
-  $("#aDur").textContent = fmt(res.duration);
-  $("#aKeep").textContent = `${(kept/res.duration*100).toFixed(0)}% / ${((1-kept/res.duration)*100).toFixed(0)}%`;
-  $("#aCuts").textContent = res.cuts.length;
-  $("#scriptA").textContent = res.script || "(대본 없음)";
-  drawTimelineA();
-}
+function subtractRanges(base,cuts){let segs=base.slice();
+  for(const c of cuts){const out=[];for(const [s,e] of segs){
+    if(c.end<=s||c.start>=e){out.push([s,e]);continue;}
+    if(c.start>s)out.push([s,Math.max(s,c.start)]);
+    if(c.end<e)out.push([Math.min(e,c.end),e]);}
+    segs=out.filter(([s,e])=>e-s>0.02);}return segs;}
+function finalRanges(){return subtractRanges([[0,A.duration]],activeCuts());}
 
-function drawTimelineA(){
-  const {res,keepOn,cutOn}=stateA; const D=res.duration; const tl=$("#tlA"); tl.innerHTML="";
-  res.keep.forEach((k,i)=>{
-    const d=document.createElement("div"); d.className="seg"+(keepOn[i]?"":" off");
-    d.style.left=(k.start/D*100)+"%"; d.style.width=((k.end-k.start)/D*100)+"%";
-    d.title=`보존 ${k.start.toFixed(1)}–${k.end.toFixed(1)}s`;
-    d.onclick=()=>{keepOn[i]=!keepOn[i];drawTimelineA();};
-    tl.appendChild(d);
-  });
-  res.cuts.forEach((c,i)=>{
-    const d=document.createElement("div"); d.className="cut"+(cutOn[i]?"":" off");
-    d.style.left=(c.start/D*100)+"%"; d.style.width=Math.max(0.4,(c.end-c.start)/D*100)+"%";
-    d.title=`${c.reason}: ${c.text}`;
-    d.onclick=(e)=>{e.stopPropagation();cutOn[i]=!cutOn[i];drawTimelineA();};
-    tl.appendChild(d);
-  });
+function drawTL(){const tl=$("#tlA");const D=A.duration;
+  tl.querySelectorAll(".cut,.pending").forEach(e=>e.remove());
+  A.aiCuts.forEach((c,i)=>{const d=document.createElement("div");
+    d.className="cut ai"+(c.on?"":" off");
+    d.style.left=(c.start/D*100)+"%";d.style.width=Math.max(.3,(c.end-c.start)/D*100)+"%";
+    d.title=`AI ${c.reason}: ${c.text}`;
+    d.onclick=e=>{e.stopPropagation();c.on=!c.on;drawTL();updateStats();};tl.appendChild(d);});
+  A.manualCuts.forEach((c,i)=>{const d=document.createElement("div");d.className="cut";
+    d.style.left=(c.start/D*100)+"%";d.style.width=Math.max(.3,(c.end-c.start)/D*100)+"%";
+    d.title="수동 컷 (클릭 삭제)";
+    d.onclick=e=>{e.stopPropagation();A.manualCuts.splice(i,1);drawTL();updateStats();};tl.appendChild(d);});
+  if(A.pendingStart!=null){const p=document.createElement("div");p.className="pending";
+    const v=$("#srcA");const a=Math.min(A.pendingStart,v.currentTime),b=Math.max(A.pendingStart,v.currentTime);
+    p.style.left=(a/D*100)+"%";p.style.width=((b-a)/D*100)+"%";tl.appendChild(p);}
 }
+$("#tlA").onclick=e=>{const r=e.currentTarget.getBoundingClientRect();
+  const t=(e.clientX-r.left)/r.width*A.duration;$("#srcA").currentTime=t;};
+
+function updateStats(){const kept=finalRanges().reduce((a,[s,e])=>a+(e-s),0);const D=A.duration;
+  $("#aDur").textContent=fmt(D);
+  $("#aKeep").textContent=`${(kept/D*100).toFixed(0)}% / ${((1-kept/D)*100).toFixed(0)}%`;
+  $("#aCuts").textContent=`${A.aiCuts.filter(c=>c.on).length}+${A.manualCuts.length}`;}
+
+function renderCues(){const box=$("#cuesA");box.innerHTML="";
+  A.cues.forEach((c,i)=>{const row=document.createElement("div");row.className="cue";
+    row.innerHTML=`<div class="t num">${c.start.toFixed(1)}–${c.end.toFixed(1)}</div>`;
+    const inp=document.createElement("input");inp.type="text";inp.value=c.text.replace(/\n/g," ");
+    inp.oninput=()=>{A.cues[i].text=inp.value;};
+    inp.onfocus=()=>{$("#srcA").currentTime=c.start;};row.appendChild(inp);box.appendChild(row);});}
+
+document.addEventListener("keydown",e=>{
+  if(mode!=="a"||!A||$("#editorA").classList.contains("hide"))return;
+  if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA")return;
+  const v=$("#srcA");
+  if(e.key==="["){A.pendingStart=v.currentTime;drawTL();}
+  else if(e.key==="]"){if(A.pendingStart!=null){
+    const a=Math.min(A.pendingStart,v.currentTime),b=Math.max(A.pendingStart,v.currentTime);
+    if(b-a>0.05)A.manualCuts.push({start:a,end:b});A.pendingStart=null;drawTL();updateStats();}}
+});
+
+$("#previewA").onclick=()=>{const v=$("#srcA");A.preview=!A.preview;
+  $("#previewA").textContent=A.preview?"■ 미리보기 중":"▶ 컷만 미리보기";
+  if(A.preview){v.currentTime=0;v.play();}};
 
 $("#exportA").onclick=async()=>{
-  const {id,res,keepOn,cutOn}=stateA;
-  const keeps = res.keep.filter((_,i)=>keepOn[i]);
-  const cuts = res.cuts.filter((_,i)=>cutOn[i]);
-  const finalRanges = subtractRanges(keeps, cuts);
-  $("#exportA").disabled=true; $("#exportA").textContent="추출 중…";
+  $("#exportA").disabled=true;$("#msgA").textContent="추출 중…";
   const r=await fetch("/api/export",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id, keep:finalRanges, subtitles:$("#subA").checked})});
-  const j=await r.json();
-  $("#exportA").disabled=false; $("#exportA").textContent="MP4 추출";
-  if(j.url){ const v=$("#vidA"); v.src=j.url+"?t="+Date.now(); v.classList.remove("hide");
-    const a=$("#dlA"); a.href=j.url; a.classList.remove("hide"); }
-  else alert("추출 실패: "+(j.error||"?"));
+    body:JSON.stringify({id:A.id,keep:finalRanges(),subtitles:$("#subA").checked,cues:A.cues})});
+  const j=await r.json();$("#exportA").disabled=false;$("#msgA").textContent="";
+  if(j.url){const o=$("#outA");o.src=j.url+"?t="+Date.now();o.classList.remove("hide");
+    const a=$("#dlA");a.href=j.url;a.classList.remove("hide");}else alert("추출 실패: "+(j.error||"?"));
+};
+$("#capcutA").onclick=async()=>{
+  $("#capcutA").disabled=true;$("#msgA").textContent="드래프트 생성 중…";
+  const r=await fetch("/api/capcut",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id:A.id,keep:finalRanges(),cues:A.cues})});
+  const j=await r.json();$("#capcutA").disabled=false;
+  $("#msgA").textContent=j.dir?`캡컷 드래프트: ${j.dir}`:"실패";
 };
 
-// 키보드: 좌/우 선택, 스페이스 토글 (보존 구간 마킹)
-let selA=0;
-document.addEventListener("keydown",e=>{
-  if(mode!=="a"||!stateA)return;
-  const n=stateA.res.keep.length;
-  if(e.key==="["){selA=(selA-1+n)%n;flashSeg();}
-  else if(e.key==="]"){selA=(selA+1)%n;flashSeg();}
-  else if(e.key===" "){e.preventDefault();stateA.keepOn[selA]=!stateA.keepOn[selA];drawTimelineA();}
-});
-function flashSeg(){const segs=document.querySelectorAll("#tlA .seg");
-  segs.forEach((s,i)=>s.style.outline=i===selA?"2px solid var(--accent)":"none");}
-
-// ---- 모드 B ----
-wireDrop($("#dropB"), $("#fileB"), files=>{
-  imagesB = Array.from(files);
-  $("#imgsB").textContent = `이미지 ${imagesB.length}장 선택됨`;
-  $("#genB").disabled = imagesB.length===0;
-});
-async function loadVoices(){
-  try{ const r=await fetch("/api/voices"); const vs=await r.json();
-    $("#voiceB").innerHTML = vs.map(v=>`<option value="${v.name}">${v.name} (${v.gender})</option>`).join("");
-  }catch(e){ $("#voiceB").innerHTML=`<option value="ko-KR-SunHiNeural">ko-KR-SunHiNeural</option>`; }
-}
+// ===== 모드 B =====
+wireDrop($("#dropB"),$("#fileB"),files=>{imagesB=Array.from(files);
+  $("#imgsB").textContent=`이미지 ${imagesB.length}장 선택됨`;$("#genB").disabled=imagesB.length===0;});
+async function loadVoices(){try{const r=await fetch("/api/voices");const vs=await r.json();
+  $("#voiceB").innerHTML=vs.map(v=>`<option value="${v.name}">${v.name} (${v.gender})</option>`).join("");}
+  catch(e){$("#voiceB").innerHTML=`<option value="ko-KR-SunHiNeural">ko-KR-SunHiNeural</option>`;}}
 loadVoices();
-$("#genB").onclick=async()=>{
-  const fd=new FormData(); fd.append("script",$("#scriptB").value);
+$("#genB").onclick=async()=>{const fd=new FormData();fd.append("script",$("#scriptB").value);
   imagesB.forEach(f=>fd.append("images",f));
-  $("#genB").disabled=true; $("#genB").textContent="생성 중…";
-  renderSteps("b");
-  const r=await fetch("/api/modeb/upload",{method:"POST",body:fd}); const j=await r.json();
-  processSSE(j.id,"b", res=>{
-    $("#genB").disabled=false; $("#genB").textContent="영상 생성";
-    const url="/out/"+res.output.split("/").pop();
-    const v=$("#vidB"); v.src=url+"?t="+Date.now(); v.classList.remove("hide");
-    const a=$("#dlB"); a.href=url; a.classList.remove("hide");
-  });
-};
+  $("#genB").disabled=true;$("#genB").textContent="생성 중…";renderSteps("b");
+  const r=await fetch("/api/modeb/upload",{method:"POST",body:fd});const j=await r.json();
+  processSSE(j.id,res=>{$("#genB").disabled=false;$("#genB").textContent="영상 생성";
+    const url="/out/"+res.output.split("/").pop();const v=$("#vidB");
+    v.src=url+"?t="+Date.now();v.classList.remove("hide");
+    const a=$("#dlB");a.href=url;a.classList.remove("hide");});};
 </script>
 </body>
 </html>
