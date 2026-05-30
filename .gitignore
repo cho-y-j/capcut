@@ -1,0 +1,24 @@
+# env / deps
+.venv/
+__pycache__/
+*.pyc
+
+# binaries / models
+bin/ffmpeg
+*.bin
+models/
+
+# runtime artifacts
+cache/
+out/
+samples/
+
+# media
+*.mp4
+*.mov
+*.wav
+*.mp3
+
+# os / editor
+.DS_Store
+*.swp
