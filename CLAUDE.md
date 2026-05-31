@@ -56,8 +56,14 @@
   정사각1:1, render canvas cover-crop), AI 자동작업 체크(자막/무음/잔말/NG),
   자막 스타일 프리셋, 추가요청 메모 → "✨ AI 자동 생성" → 편집기. process_mode_a
   opts로 컷 토글, export format→canvas.
-- **대화로 추가 (v0.9.0)**: 편집기에서 "구독버튼/클릭음/'안녕' 텍스트/이모지"를
-  입력하면 규칙기반으로 즉시 추가. (완전 자연어는 LLM 키 필요 → 향후)
+- **대화형 AI 편집 (v0.10.0)**: 편집기 입력창에 자연어("쇼츠로 바꾸고 2초에
+  구독버튼+딩소리, '주목' 크게") → LLM이 편집 액션(JSON)으로 변환해 즉시 적용.
+  - **엔진 우선순위**: ① Claude CLI(`claude -p`, 로그인 구독) → 실패·만료 시
+    ② DeepSeek API(키). 둘 다 없으면 규칙기반 폴백. `app/llm.py`.
+  - **키 입력**: `/api/admin` 페이지에서 DeepSeek 키 입력 → `config/keys.json`
+    (깃 비추적). `/api/llm/status`로 가용 엔진 확인.
+  - 액션: format(쇼츠/정사각)·text·overlay(버튼)·sfx·subtitle_style·bgm_volume·
+    subtitles. /api/assist. (TTS 엔진 추상화와 동일 철학 — 교체 가능)
 - **랜딩·온보딩 (v0.9.2)**: 첫 화면 = 히어로 + 큰 드롭존 + 가치칩(초보 친화).
   인테이크는 "원하는 걸 한 줄" 메모 + "✨ AI에게 맡기기" 한 버튼 + 세부설정 접기.
   메모 키워드로 형식 자동인식(쇼츠/세로→9:16). 편집기 첫 진입 시 "30초 사용법"

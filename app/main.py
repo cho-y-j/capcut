@@ -476,6 +476,67 @@ async def voices() -> JSONResponse:
     return JSONResponse(await tts.list_korean_voices())
 
 
+@app.post("/api/assist")
+async def assist(req: Request) -> JSONResponse:
+    """자연어 요청 → 편집 액션(JSON). Claude CLI 우선, 실패 시 DeepSeek."""
+    from . import llm
+    import asyncio
+    body = await req.json()
+    msg = (body.get("message") or "").strip()
+    if not msg:
+        return JSONResponse({"error": "빈 요청"}, status_code=400)
+    try:
+        res = await asyncio.to_thread(llm.assist, msg, body.get("ctx") or {})
+        return JSONResponse(res)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=503)
+
+
+@app.get("/api/llm/status")
+async def llm_status() -> JSONResponse:
+    from . import llm
+    return JSONResponse(llm.status())
+
+
+@app.get("/api/admin", response_class=HTMLResponse)
+async def admin() -> str:
+    from . import llm
+    st = llm.status()
+    cli = "✅ 사용 가능" if st["claude_cli"] else "❌ 없음"
+    ds = "✅ 키 등록됨" if st["deepseek"] else "❌ 미등록"
+    return f"""<!doctype html><html lang=ko><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>ONCUT 관리자</title>
+<style>body{{background:#0a0a0a;color:#ededed;font-family:ui-monospace,monospace;max-width:560px;margin:40px auto;padding:0 20px}}
+h1{{font-size:16px}}.card{{background:#161616;border:1px solid #262626;border-radius:12px;padding:20px;margin-top:16px}}
+input{{width:100%;background:#0e0e0e;border:1px solid #262626;color:#ededed;border-radius:8px;padding:10px;font-family:inherit;margin:6px 0}}
+button{{background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:10px 18px;font-weight:600;cursor:pointer}}
+.s{{color:#8a8a8a;font-size:12px}}.ok{{color:#22c55e}}</style></head><body>
+<h1>ONCUT 관리자 — AI 대화형 편집 설정</h1>
+<div class=card>
+<p class=s>대화형 편집은 <b>Claude CLI</b>를 먼저 쓰고, 만료·실패 시 <b>DeepSeek</b>로 자동 전환합니다.</p>
+<p>Claude CLI: <b>{cli}</b><br>DeepSeek: <b>{ds}</b></p>
+</div>
+<div class=card>
+<p>DeepSeek API 키 (폴백용)</p>
+<input id=ds type=password placeholder="sk-...">
+<button onclick="save()">저장</button> <span id=msg class=s></span>
+<p class=s style=margin-top:10px>키는 서버 config/keys.json에 저장(깃 비추적). 입력 후 Claude CLI가 안 되면 자동으로 DeepSeek 사용.</p>
+</div>
+<script>
+async function save(){{const k=document.getElementById('ds').value.trim();if(!k)return;
+const r=await fetch('/api/admin/keys',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{deepseek:k}})}});
+document.getElementById('msg').textContent=r.ok?'저장됨 ✓':'실패';document.getElementById('msg').className='ok';}}
+</script></body></html>"""
+
+
+@app.post("/api/admin/keys")
+async def admin_keys(req: Request) -> JSONResponse:
+    from . import llm
+    body = await req.json()
+    llm.save_keys({"deepseek": (body.get("deepseek") or "").strip()})
+    return JSONResponse({"ok": True})
+
+
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"ok": True, "version": "0.1.0"}

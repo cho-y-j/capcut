@@ -24,3 +24,4 @@ app/static/assets/
 # os / editor
 .DS_Store
 *.swp
+config/

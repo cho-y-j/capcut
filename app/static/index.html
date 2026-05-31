@@ -150,7 +150,7 @@
 <body>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>ONCUT</h1><span class="chip num">v0.9.2</span><span class="chip">AI 영상 편집</span></header>
+    <h1>ONCUT</h1><span class="chip num">v0.10.0</span><span class="chip">AI 영상 편집</span></header>
   <p class="sub">영상 던지고 체크만 → AI가 컷·자막·정리 자동 · 그다음 보면서 오른쪽 버튼으로 톡톡 편집 · 全 OS</p>
 
   <!-- 시작 화면 -->
@@ -262,7 +262,8 @@
           <button class="btn add sm" id="newA">↺ 새 영상</button>
         </div>
         <div class="chips" id="presetChips"></div>
-        <input type="text" id="chatAdd" placeholder="💬 대화로 추가: 구독버튼 / 클릭음 / '안녕' 텍스트 / 😀" style="margin-top:7px;font-size:11px">
+        <input type="text" id="chatAdd" placeholder="🤖 AI에게: 쇼츠로 바꾸고 2초에 구독버튼+클릭음, '여기 주목' 크게…" style="margin-top:7px;font-size:11px">
+        <div class="hint" style="margin-top:3px">엔터 → AI가 알아서 처리 · <a href="/api/admin" target="_blank" style="color:var(--dim)">⚙ AI 설정</a></div>
         <input type="file" id="logoFile" accept="image/*" class="hide">
         <input type="file" id="sfxFile" accept="audio/*" class="hide">
         <input type="file" id="bgmFile" accept="audio/*" class="hide">
@@ -632,18 +633,46 @@ $("#bgmFile").onchange=async()=>{const f=$("#bgmFile").files[0];if(!f)return;con
 $("#addCut").onclick=()=>splitAt();
 // 대화로 추가 (규칙기반: 버튼/효과음/음악/텍스트·이모지)
 $("#chatAdd").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();chatAdd(e.target.value);e.target.value="";}};
-function chatAdd(s){if(!s||!s.trim())return;pushHistory();const t=curOut();let msg="추가됨";
+async function chatAdd(s){if(!s||!s.trim())return;$("#msgA").textContent="AI 생각 중…";
+  try{                                  // ① LLM(Claude CLI→DeepSeek)에게 자연어 해석
+    const r=await fetch("/api/assist",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({message:s,ctx:{now:curOut(),total:layout().total,format:A.format}})});
+    const j=await r.json();
+    if(r.ok&&j.actions){pushHistory();const n=applyActions(j.actions);
+      renderStage();redraw();renderInspector();save();
+      $("#msgA").textContent=(j.reply||"적용됨")+" ("+(j.provider||"AI")+", "+n+"개)";return;}
+    throw new Error(j.error||"no actions");
+  }catch(e){chatRule(s);}             // ② 실패(키없음/오프라인)면 규칙기반 폴백
+}
+function applyActions(acts){const t0=curOut();let n=0;const C={lt:[.13,.12],rt:[.87,.12],lb:[.13,.88],rb:[.87,.88]};
+  (acts||[]).forEach(a=>{const at=(a.at!=null)?+a.at:t0;
+    if(a.type==="format"){A.format=a.value||"wide";setStageAspect();n++;}
+    else if(a.type==="text"){const py=a.pos==="top"?.15:a.pos==="center"?.5:.85;
+      A.texts.push({id:++cid,text:a.text||"텍스트",x:.5,y:py,fontSize:a.fontSize||64,color:a.color||"#ffffff",
+        outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:at,end:at+(a.dur||3),anim:a.anim||"pop"});
+      A.sel={type:"text",i:A.texts.length-1};n++;}
+    else if(a.type==="overlay"){const p=(PRESETS.buttons||[]).find(x=>x.id===a.preset)||PRESETS.buttons[0];
+      if(p){const c=C[a.corner||"rb"];A.overlays.push({id:++cid,preset:p.id,url:p.url,name:p.label,x:c[0],y:c[1],scale:.22,opacity:1,start:at,end:at+(a.dur||4),fade:.3});n++;}}
+    else if(a.type==="sfx"){const p=(PRESETS.sounds||[]).find(x=>x.id===a.preset)||PRESETS.sounds[0];
+      if(p){A.sfx.push({id:++cid,preset:p.id,url:p.url,name:p.label,at:at,volume:1});previewSfx(p.url,1);n++;}}
+    else if(a.type==="bgm_volume"){if(A.bgm.enabled){A.bgm.volume=Math.max(0,Math.min(.6,+a.value||.12));n++;}}
+    else if(a.type==="subtitle_style"){if(a.fontSize)A.style.fontSize=+a.fontSize;if(a.color)A.style.color=a.color;
+      if(a.align)A.style.align=a.align;if(a.box!=null)A.style.box=!!a.box;n++;}
+    else if(a.type==="subtitles"){A.subsOn=!!a.on;n++;}});
+  return n;}
+function chatRule(s){pushHistory();const t=curOut();let msg="추가됨";
   const ob=id=>{const p=(PRESETS.buttons||[]).find(x=>x.id===id);if(p){A.overlays.push({id:++cid,preset:p.id,url:p.url,name:p.label,x:0.85,y:0.85,scale:0.22,opacity:1,start:t,end:t+4,fade:0.3});A.sel={type:"overlay",i:A.overlays.length-1};}};
-  const sf=id=>{const p=(PRESETS.sounds||[]).find(x=>x.id===id);if(p){A.sfx.push({id:++cid,preset:p.id,url:p.url,name:p.label,at:t,volume:1});A.sel={type:"sfx",i:A.sfx.length-1};}};
+  const sf=id=>{const p=(PRESETS.sounds||[]).find(x=>x.id===id);if(p){A.sfx.push({id:++cid,preset:p.id,url:p.url,name:p.label,at:t,volume:1});A.sel={type:"sfx",i:A.sfx.length-1};previewSfx(p.url,1);}};
   if(/구독/.test(s))ob("btn_subscribe");
   else if(/좋아요/.test(s))ob("btn_like");
   else if(/클릭\s*버튼|버튼/.test(s))ob("btn_click");
   else if(/클릭음|효과음|딩|알림|소리/.test(s))sf("sfx_ding");
+  else if(/쇼츠|세로/.test(s)){A.format="shorts";setStageAspect();msg="쇼츠 9:16";}
   else if(/음악|배경음/.test(s)){$("#bgmFile").click();msg="음악 파일 선택";}
   else{const txt=s.replace(/(추가해?줘?|넣어줘?|해줘|여기에?)/g,"").trim()||s.trim();
     A.texts.push({id:++cid,text:txt,x:0.5,y:0.45,fontSize:64,color:"#ffffff",outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:t,end:t+3,anim:"pop"});
     A.sel={type:"text",i:A.texts.length-1};}
-  renderStage();redraw();renderInspector();save();$("#msgA").textContent=msg;}
+  renderStage();redraw();renderInspector();save();$("#msgA").textContent=msg+" (규칙기반)";}
 function splitAt(){const v=$("#srcA"),i=A.playIdx,c=A.clips[i];if(!c)return;const t=v.currentTime;
   if(t<=c.srcIn+0.1||t>=c.srcEnd-0.1){$("#msgA").textContent="클립 안에서 자를 위치로 이동하세요";return;}
   pushHistory();const right={id:++cid,srcIn:t,srcEnd:c.srcEnd,transition:{type:"none",dur:0.5}};c.srcEnd=t;A.clips.splice(i+1,0,right);redraw();save();}
