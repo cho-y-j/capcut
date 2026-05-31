@@ -70,14 +70,24 @@
   .step .lbl{font-size:11px;color:var(--dim)}.step.run .lbl,.step.done .lbl{color:var(--txt)}
   .step .det{font-size:10px;color:var(--dim)}
 
-  /* ===== 편집기 2컬럼 ===== */
-  .editor{display:flex;gap:14px;align-items:flex-start}
-  .left{flex:1;min-width:0}
-  .right{width:312px;flex:none}
-  @media(max-width:880px){.editor{flex-direction:column}.right{width:100%}}
+  /* ===== 편집기 = 풀스크린 앱 셸 (페이지 스크롤 없음) ===== */
+  body.editing{overflow:hidden}
+  #editorA.editor{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr auto;
+    background:var(--bg);z-index:30;gap:0}
+  .topbar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--card);min-height:0}
+  .topbar .brand{font-weight:700;font-size:14px;color:var(--accent)}
+  .topbar .tbright{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .main{display:grid;grid-template-columns:1fr 330px;min-height:0;overflow:hidden}
+  .previewcol{display:flex;flex-direction:column;min-height:0;min-width:0;border-right:1px solid var(--line)}
+  .stagewrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000;padding:12px;overflow:hidden}
+  .pvbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line)}
+  .inspector{overflow-y:auto;overflow-x:hidden;padding:14px;background:var(--card)}
+  .timeline-region{border-top:1px solid var(--line);background:#0e0e0e;overflow:hidden;height:250px}
+  .timeline-region .laneh{margin:4px 0 1px 10px}
+  @media(max-width:760px){.main{grid-template-columns:1fr}.inspector{display:none}}
 
-  .stage{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-  .stage video{width:100%;max-height:54vh;display:block;object-fit:contain;background:#000}
+  .stage{position:relative;background:#000;border-radius:8px;overflow:hidden}
+  .stage video{width:100%;height:100%;display:block;object-fit:cover;background:#000}
   .layer{position:absolute;inset:0;pointer-events:none;overflow:hidden}
   .ov{position:absolute;left:0;right:0;text-align:center;pointer-events:none;padding:0 6%;font-weight:700;line-height:1.3;white-space:pre-wrap}
   .ov .ovtxt{pointer-events:auto;cursor:move;display:inline-block;max-width:96%}
@@ -92,7 +102,7 @@
   .toolbar{display:flex;gap:6px;align-items:center;margin:8px 0 4px;flex-wrap:wrap}
   .zoom{display:flex;gap:4px;align-items:center;color:var(--dim);font-size:11px}
 
-  .editor-tl{overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:8px;background:#0e0e0e;padding:6px 0 8px;margin-top:6px}
+  .editor-tl{height:100%;overflow-x:auto;overflow-y:auto;background:#0e0e0e;padding:6px 10px 8px}
   .tlinner{position:relative}
   .ruler{height:15px;position:relative;border-bottom:1px solid var(--line);margin-bottom:4px;cursor:pointer}
   .tick{position:absolute;top:0;font-size:9px;color:var(--dim);border-left:1px solid #242424;padding-left:3px;height:100%}
@@ -150,7 +160,7 @@
 <body>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>ONCUT</h1><span class="chip num">v0.10.0</span><span class="chip">AI 영상 편집</span></header>
+    <h1>ONCUT</h1><span class="chip num">v0.11.0</span><span class="chip">AI 영상 편집</span></header>
   <p class="sub">영상 던지고 체크만 → AI가 컷·자막·정리 자동 · 그다음 보면서 오른쪽 버튼으로 톡톡 편집 · 全 OS</p>
 
   <!-- 시작 화면 -->
@@ -220,22 +230,56 @@
     </section>
   </div>
 
-  <!-- 편집기 -->
+  <!-- 편집기 = 풀스크린 앱 셸 -->
   <div id="editorA" class="editor hide">
-    <div class="left">
-      <div class="stage"><video id="srcA"></video>
-        <div class="layer" id="layer"><div class="ov" id="ovA"></div></div>
+    <div class="topbar">
+      <span class="brand">ONCUT</span>
+      <span class="num hint" id="tc">0:00 / 0:00</span>
+      <div class="bar" style="max-width:130px;flex:none;width:130px"><i id="prog"></i></div>
+      <span class="hint" id="msgA"></span>
+      <div class="tbright">
+        <button class="btn ghost sm" id="helpBtn">❔ 사용법</button>
+        <button class="btn ghost sm" id="previewA">▶ 미리보기</button>
+        <button class="btn sm" id="exportA">MP4 추출</button>
+        <button class="btn ghost sm" id="capcutA">캡컷</button>
+        <button class="btn ghost sm" id="newA">↺ 새 영상</button>
       </div>
-      <div class="toolbar">
-        <button class="btn ghost sm" id="playBtn">▶ 재생</button>
-        <span class="hint num" id="tc">0:00 / 0:00</span>
-        <button class="btn ghost sm help-fab" id="helpBtn" style="margin-left:auto">❔ 사용법</button>
-        <div class="zoom">줌
-          <button class="btn ghost sm" id="zoomOut">−</button>
-          <button class="btn ghost sm" id="zoomIn">+</button>
-          <button class="btn ghost sm" id="zoomFit">맞춤</button>
+    </div>
+    <div class="main">
+      <div class="previewcol">
+        <div class="stagewrap"><div class="stage"><video id="srcA"></video>
+          <div class="layer" id="layer"><div class="ov" id="ovA"></div></div></div></div>
+        <div class="pvbar">
+          <button class="btn ghost sm" id="playBtn">▶ 재생</button>
+          <span class="hint">클립 끝=길이 · 가운데=순서 · <span class="kbd">S</span>분할 · <span class="kbd">Del</span>삭제 · <span class="kbd">Space</span>재생</span>
+          <div class="zoom" style="margin-left:auto">줌
+            <button class="btn ghost sm" id="zoomOut">−</button>
+            <button class="btn ghost sm" id="zoomIn">+</button>
+            <button class="btn ghost sm" id="zoomFit">맞춤</button>
+          </div>
         </div>
       </div>
+      <div class="inspector">
+        <h3>➕ 추가 (현재 위치)</h3>
+        <div class="addgrid">
+          <button class="btn add sm" id="addText">➕ 텍스트</button>
+          <button class="btn add sm" id="addLogo">🖼 로고/이미지</button>
+          <button class="btn add sm" id="addSfx">🔔 효과음 파일</button>
+          <button class="btn add sm" id="addMusic">🎵 배경음악</button>
+          <button class="btn add sm" id="addCut">✂️ 자르기</button>
+        </div>
+        <div class="chips" id="presetChips"></div>
+        <input type="text" id="chatAdd" placeholder="🤖 AI에게: 쇼츠로 바꾸고 2초에 구독버튼+클릭음…" style="margin-top:7px;font-size:11px">
+        <div class="hint" style="margin-top:3px">엔터 → AI가 처리 · <a href="/api/admin" target="_blank" style="color:var(--dim)">⚙ AI 설정</a></div>
+        <input type="file" id="logoFile" accept="image/*" class="hide">
+        <input type="file" id="sfxFile" accept="audio/*" class="hide">
+        <input type="file" id="bgmFile" accept="audio/*" class="hide">
+        <div class="seg" id="inspBody"></div>
+        <div class="seg"><div class="stat3 num"><div>출력<b id="sDur">–</b></div><div>클립<b id="sClips">–</b></div><div>요소<b id="sEls">–</b></div></div></div>
+        <details class="adv"><summary>전체 자막 목록</summary><div class="cuelist" id="cuesA"></div></details>
+      </div>
+    </div>
+    <div class="timeline-region">
       <div class="editor-tl" id="tlScroll"><div class="tlinner" id="tlInner">
         <div class="ruler" id="ruler"></div>
         <div class="laneh">영상</div><div class="lane v" id="laneV"></div>
@@ -246,46 +290,20 @@
         <div class="laneh" id="laneHA">배경음악</div><div class="lane a" id="laneA"></div>
         <div class="ph" id="ph" style="left:0"><div class="phgrip" id="phgrip"></div></div>
       </div></div>
-      <div class="hint" style="margin-top:6px">클립: 가운데 끌기=순서 · 끝 끌기=길이 · <span class="kbd">S</span>분할 · <span class="kbd">Del</span>삭제 · 눈금/막대 끌어 이동 · <span class="kbd">Space</span>재생 · <span class="kbd">Ctrl+Z</span>되돌리기</div>
-      <div class="cuelist" id="cuesA"></div>
-    </div>
-
-    <div class="right">
-      <div class="insp">
-        <h3>➕ 추가 (현재 위치)</h3>
-        <div class="addgrid">
-          <button class="btn add sm" id="addText">➕ 텍스트</button>
-          <button class="btn add sm" id="addLogo">🖼 로고/이미지</button>
-          <button class="btn add sm" id="addSfx">🔔 효과음 파일</button>
-          <button class="btn add sm" id="addMusic">🎵 배경음악</button>
-          <button class="btn add sm" id="addCut">✂️ 자르기</button>
-          <button class="btn add sm" id="newA">↺ 새 영상</button>
-        </div>
-        <div class="chips" id="presetChips"></div>
-        <input type="text" id="chatAdd" placeholder="🤖 AI에게: 쇼츠로 바꾸고 2초에 구독버튼+클릭음, '여기 주목' 크게…" style="margin-top:7px;font-size:11px">
-        <div class="hint" style="margin-top:3px">엔터 → AI가 알아서 처리 · <a href="/api/admin" target="_blank" style="color:var(--dim)">⚙ AI 설정</a></div>
-        <input type="file" id="logoFile" accept="image/*" class="hide">
-        <input type="file" id="sfxFile" accept="audio/*" class="hide">
-        <input type="file" id="bgmFile" accept="audio/*" class="hide">
-
-        <div class="seg" id="inspBody"></div>
-
-        <div class="seg">
-          <h3>출력</h3>
-          <div class="row">
-            <button class="btn ghost sm" id="previewA">▶ 미리보기</button>
-            <button class="btn sm" id="exportA">MP4 추출</button>
-            <button class="btn ghost sm" id="capcutA">캡컷</button>
-          </div>
-          <div class="row" style="margin-top:8px"><div class="bar"><i id="prog"></i></div>
-            <a class="dl hide" id="dlA" download>다운로드 ↓</a></div>
-          <div class="hint" id="msgA" style="margin-top:4px"></div>
-          <div class="stat3 num"><div>출력<b id="sDur">–</b></div><div>클립<b id="sClips">–</b></div><div>요소<b id="sEls">–</b></div></div>
-        </div>
-      </div>
     </div>
   </div>
-  <video id="outA" controls class="hide" style="margin-top:12px;max-width:1180px"></video>
+</div>
+
+<!-- 결과(미리보기/완성본) 모달 -->
+<div class="modal hide" id="result">
+  <div class="modalcard" style="max-width:760px">
+    <h2 id="resultTitle">완성!</h2>
+    <video id="outA" controls style="width:100%;border-radius:8px;max-height:64vh;background:#000"></video>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <a class="dl" id="dlA" download>다운로드 ↓</a>
+      <button class="btn ghost" id="resultClose">닫고 계속 편집</button>
+    </div>
+  </div>
 </div>
 
 <!-- 편집기 사용법 가이드 -->
@@ -388,21 +406,25 @@ function initEditor(id,res,restore){
   A.subsOn=restore?(restore.subsOn!==false):(INTAKE.subs!==false);
   if(!restore&&INTAKE.style==="shorts"){A.style.fontSize=84;A.style.outlineW=4;A.style.bold=true;A.style.align="bottom";}
   undoStack=[];redoStack=[];
+  document.body.classList.add("editing");
   $("#start").classList.add("hide");$("#editorA").classList.remove("hide");
   const v=$("#srcA");v.src=`/api/media?id=${id}`;
   A.thumbs=`/api/thumbs?id=${id}&n=120`;
   v.ontimeupdate=onTime;v.onpause=()=>{A.playing=false;$("#playBtn").textContent="▶ 재생";};
   v.onplay=()=>{A.playing=true;$("#playBtn").textContent="❚❚ 일시정지";};
-  setStageAspect();redraw();renderStage();renderInspector();renderCues();save();
+  requestAnimationFrame(()=>{setStageAspect();renderStage();});  // 레이아웃 후 정확한 크기
+  redraw();renderStage();renderInspector();renderCues();save();
   loadWaveform(id);
   if(!restore&&INTAKE.memo)applyMemo(INTAKE.memo);
   try{if(!localStorage.getItem("oncut_seen"))$("#help").classList.remove("hide");}catch(e){}
 }
-function setStageAspect(){const st=$(".stage"),v=$("#srcA");
-  const r=A.format==="shorts"?"9/16":A.format==="square"?"1/1":((A.w||16)+"/"+(A.h||9));
-  st.style.aspectRatio=r;st.style.height=A.format==="wide"?"min(54vh,560px)":"58vh";
-  st.style.width="auto";st.style.maxWidth="100%";st.style.margin="0 auto";
-  v.style.width="100%";v.style.height="100%";v.style.objectFit="cover";}
+function setStageAspect(){fitStage();}
+function fitStage(){const wrap=document.querySelector(".stagewrap"),st=$(".stage");if(!wrap||!st||!A)return;
+  const W=Math.max(40,wrap.clientWidth-24),H=Math.max(40,wrap.clientHeight-24);
+  const r=A.format==="shorts"?9/16:A.format==="square"?1:((A.w||16)/(A.h||9));
+  let w=W,h=w/r;if(h>H){h=H;w=h*r;}
+  st.style.width=Math.round(w)+"px";st.style.height=Math.round(h)+"px";
+  const vd=$("#srcA");vd.style.width="100%";vd.style.height="100%";vd.style.objectFit="cover";}
 function applyMemo(m){const ob=id=>{const p=(PRESETS.buttons||[]).find(x=>x.id===id);
     if(p)A.overlays.push({id:++cid,preset:p.id,url:p.url,name:p.label,x:0.85,y:0.85,scale:0.22,opacity:1,start:0.3,end:4.3,fade:0.3});};
   const sf=id=>{const p=(PRESETS.sounds||[]).find(x=>x.id===id);if(p)A.sfx.push({id:++cid,preset:p.id,url:p.url,name:p.label,at:0.3,volume:1});};
@@ -838,11 +860,16 @@ async function startJob(url,statusUrl,label){$("#prog").style.width="0";$("#msgA
   const iv=setInterval(async()=>{const s=await(await fetch(statusUrl+"?id="+A.id)).json();
     $("#prog").style.width=Math.round((s.pct||0)*100)+"%";$("#msgA").textContent=label+" "+Math.round((s.pct||0)*100)+"%";
     if(s.done){clearInterval(iv);
-      if(s.url){const o=$("#outA");o.src=s.url+"?t="+Date.now();o.classList.remove("hide");o.play&&o.play().catch(()=>{});
-        const a=$("#dlA");a.href=s.url;a.classList.remove("hide");$("#msgA").textContent=label+" 완료 ↓";}
+      if(s.url){const o=$("#outA");o.src=s.url+"?t="+Date.now();
+        $("#resultTitle").textContent=label+" 완료 🎉";
+        const a=$("#dlA");a.href=s.url;
+        $("#result").classList.remove("hide");o.play&&o.play().catch(()=>{});
+        $("#msgA").textContent=label+" 완료";}
       else{$("#msgA").textContent="";alert(label+" 실패: "+(s.error||"?"));}}},400);}
 $("#exportA").onclick=()=>startJob("/api/export","/api/export/status","추출");
-$("#previewA").onclick=()=>{$("#dlA").classList.add("hide");startJob("/api/preview","/api/preview/status","미리보기");};
+$("#previewA").onclick=()=>startJob("/api/preview","/api/preview/status","미리보기");
+$("#resultClose").onclick=()=>{$("#result").classList.add("hide");const o=$("#outA");o.pause&&o.pause();};
+$("#result").onclick=e=>{if(e.target.id==="result")$("#resultClose").onclick();};
 $("#capcutA").onclick=async()=>{$("#msgA").textContent="캡컷 드래프트…";
   const r=await fetch("/api/capcut",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
   const j=await r.json();$("#msgA").textContent=j.dir?("캡컷: "+j.dir):"실패";};
@@ -861,7 +888,7 @@ $("#genB").onclick=async()=>{const fd=new FormData();fd.append("script",$("#scri
 
 async function loadFonts(){try{FONTS=await(await fetch("/api/fonts")).json();}catch(e){}if(A)renderInspector();}
 async function loadPresets(){try{PRESETS=await(await fetch("/api/presets")).json();}catch(e){}renderPresetChips();}
-window.addEventListener("resize",()=>{if(A){redraw();renderStage();applySubStyle();}});
+window.addEventListener("resize",()=>{if(A){fitStage();redraw();renderStage();applySubStyle();}});
 loadVoices();loadFonts();loadPresets();tryRestore();
 </script>
 </body>
