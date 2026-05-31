@@ -279,3 +279,53 @@ def burn_subtitles(video: str, ass_path: str, out_path: str,
            "-movflags", "+faststart", out_path]
     _run_with_progress(cmd, total_sec, progress)
     return out_path
+
+
+def apply_overlays(video: str, overlays: Sequence[dict], out_path: str, *,
+                   preset: str | None = None, crf: str | None = None,
+                   progress: ProgressCB = None) -> str:
+    """영상 위에 이미지(로고/워터마크/사진) 오버레이 합성. out_path 반환.
+
+    overlay = {path, x, y(정규화 중심 0~1), scale(가로비 0~1), opacity, start?, end?}.
+    위치는 출력 타임라인 기준. start/end 주면 그 구간에만 표시(enable). 오디오는 copy.
+    """
+    from .silence import probe_duration, probe_video
+    if not overlays:
+        return video
+    preset = config.PRESET if preset is None else preset
+    crf = config.CRF if crf is None else crf
+    W, H, _ = probe_video(video)
+    total = probe_duration(video)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+    inputs: List[str] = ["-i", video]
+    P: List[str] = []
+    cur = "0:v"
+    for i, ov in enumerate(overlays):
+        inputs += ["-i", ov["path"]]
+        idx = i + 1
+        ow = max(2, int(W * float(ov.get("scale", 0.2))))
+        op = max(0.0, min(1.0, float(ov.get("opacity", 1.0))))
+        px, py = float(ov.get("x", 0.5)), float(ov.get("y", 0.1))
+        P.append(f"[{idx}:v]scale={ow}:-1,format=rgba,colorchannelmixer=aa={op:.3f}[ov{i}]")
+        en = ""
+        s, e = ov.get("start"), ov.get("end")
+        if s is not None and e is not None:
+            en = f":enable='between(t,{float(s):.3f},{float(e):.3f})'"
+        nb = f"b{i}"
+        P.append(f"[{cur}][ov{i}]overlay=x=W*{px}-w/2:y=H*{py}-h/2{en}[{nb}]")
+        cur = nb
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write(";".join(P))
+        gp = f.name
+    cmd = [config.FFMPEG, "-y", *inputs, "-filter_complex_script", gp,
+           "-map", f"[{cur}]", "-map", "0:a?",
+           "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
+           "-pix_fmt", "yuv420p", "-c:a", "copy",
+           "-movflags", "+faststart", out_path]
+    try:
+        _run_with_progress(cmd, total, progress)
+    finally:
+        Path(gp).unlink(missing_ok=True)
+    return out_path

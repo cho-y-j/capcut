@@ -75,6 +75,11 @@
     font-size:10px;color:#d6f5e0;padding:3px 5px;overflow:hidden;white-space:nowrap;cursor:pointer}
   .aclip{position:absolute;top:0;height:24px;background:#1b2330;border:1px solid #3a567c;border-radius:4px;
     font-size:10px;color:#bcd3f5;padding:3px 5px;overflow:hidden;white-space:nowrap}
+  .oclip{position:absolute;top:0;height:24px;background:#2a2030;border:1px solid #7c5a8c;border-radius:4px;
+    font-size:10px;color:#e6c8f5;padding:3px 5px;overflow:hidden;white-space:nowrap;cursor:pointer}
+  .oclip.sel{border-color:var(--accent);color:#cdebd6}
+  .ovimg{position:absolute;cursor:move;user-select:none;-webkit-user-drag:none}
+  .ovimg.sel{outline:2px solid var(--accent);outline-offset:1px}
   .ph{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;z-index:8}
   .pop{position:absolute;z-index:20;background:var(--card);border:1px solid var(--line);border-radius:8px;
     padding:8px;display:flex;gap:5px;align-items:center;flex-wrap:wrap;width:230px;box-shadow:0 8px 24px #000a}
@@ -101,7 +106,7 @@
 <body>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>캡컷 에이전트</h1><span class="chip num">v0.5.0</span></header>
+    <h1>캡컷 에이전트</h1><span class="chip num">v0.6.0</span></header>
   <p class="sub">토킹 영상도 이미지→내레이션도 · AI가 자르고·자막 달고·정리까지 · 같은 편집기에서 끌어다 놓기만 · 전문 작업은 캡컷으로</p>
 
   <div class="tabs">
@@ -137,6 +142,7 @@
         <div class="laneh">영상 클립</div><div class="lane v" id="laneV"></div>
         <div class="laneh">자막</div><div class="lane s" id="laneS"></div>
         <div class="laneh" id="laneHA">배경음악</div><div class="lane a" id="laneA"></div>
+        <div class="laneh" id="laneHO">로고·이미지</div><div class="lane a" id="laneO"></div>
         <div class="ph" id="ph" style="left:0"></div>
       </div></div>
 
@@ -164,15 +170,34 @@
         <span class="hint">자막을 영상 위에서 끌어 위치를 직접 잡을 수 있어요</span>
       </div>
 
+      <!-- 오버레이(로고·이미지) 패널 -->
+      <div class="panel" id="ovPanel">
+        <span class="lbl">로고·이미지</span>
+        <button class="btn ghost sm" id="ovAdd">🖼 추가</button>
+        <input type="file" id="ovFile" accept="image/*" class="hide">
+        <span id="ovCtl" style="display:none">
+          <span class="lbl">크기</span><input type="range" id="ovScale" min="5" max="100" step="1" style="width:80px">
+          <span class="lbl">투명도</span><input type="range" id="ovOpacity" min="10" max="100" step="5" style="width:70px">
+          <span class="lbl">코너</span>
+          <button class="btn ghost sm" data-c="lt">↖</button><button class="btn ghost sm" data-c="rt">↗</button>
+          <button class="btn ghost sm" data-c="lb">↙</button><button class="btn ghost sm" data-c="rb">↘</button>
+          <span class="lbl">구간(초)</span><input type="text" id="ovStart" placeholder="처음" style="width:46px">~<input type="text" id="ovEnd" placeholder="끝" style="width:46px">
+          <button class="btn ghost sm" id="ovDel">제거</button>
+        </span>
+        <span class="hint">이미지를 영상 위에서 끌어 위치를 잡으세요 · 구간 비우면 전체</span>
+      </div>
+
       <!-- BGM + 출력 -->
       <div class="row" style="margin:10px 0">
         <button class="btn ghost" id="previewA">▶ 진짜 미리보기</button>
-        <label class="ck"><input type="checkbox" id="bgmCk"> 배경음악</label>
+        <button class="btn ghost" id="bgmBtn">🎵 음악 추가</button>
         <input type="file" id="bgmFile" accept="audio/*" class="hide">
-        <span class="zoom" id="bgmCtl" style="display:none">음량
-          <input type="range" id="bgmVol" min="0" max="60" step="2" style="width:90px">
+        <span class="zoom" id="bgmCtl" style="display:none">
+          <span class="lbl" id="bgmName"></span> 음량
+          <input type="range" id="bgmVol" min="0" max="60" step="2" style="width:80px">
           <span class="lbl">페이드</span>
-          <input type="range" id="bgmFade" min="0" max="4" step="0.5" style="width:70px">
+          <input type="range" id="bgmFade" min="0" max="4" step="0.5" style="width:60px">
+          <button class="btn ghost sm" id="bgmDel">제거</button>
         </span>
         <button class="btn ghost" id="newA">새 영상</button>
       </div>
@@ -284,11 +309,13 @@ function initEditor(id,res,restore){
   A={id,res,duration:res.duration,w:res.w||1280,h:res.h||720,clips:baseClips,
      cues:res.cues.map(c=>({...c})),style:{...DEF_STYLE},
      bgm:{enabled:false,volume:0.16,fadeIn:0,fadeOut:0},
+     overlays:[],ovSel:-1,
      pxPerSec:Math.max(8,Math.min(80,820/(res.duration||10))),playIdx:0};
   if(restore){
     if(restore.clips)A.clips=restore.clips.map(c=>({id:++cid,...c}));
     if(restore.style)A.style={...DEF_STYLE,...restore.style};
     if(restore.bgm)A.bgm={...A.bgm,...restore.bgm};
+    if(restore.overlays)A.overlays=restore.overlays.map(o=>({...o}));
     if(restore.cu)A.cues.forEach((c,i)=>{if(restore.cu[i]!=null)c.text=restore.cu[i];});
   }
   undoStack=[];redoStack=[];
@@ -301,7 +328,7 @@ function initEditor(id,res,restore){
   syncStyleControls();syncBgmControls();
   v.ontimeupdate=onTime;v.onpause=()=>{A.playing=false;};
   v.onplay=()=>{A.playing=true;};
-  renderCues();redraw();save();
+  renderCues();redraw();renderOverlays();save();
   loadWaveform(id);
 }
 async function loadWaveform(id){try{const r=await fetch(`/api/waveform?id=${id}`);
@@ -356,19 +383,21 @@ async function loadFonts(){try{const r=await fetch("/api/fonts");FONTS=await r.j
 
 // ----- 히스토리 -----
 function snapshot(){return JSON.stringify({clips:A.clips.map(c=>({srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
-  cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm}});}
+  cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},overlays:A.overlays.map(o=>({...o}))});}
 function pushHistory(){undoStack.push(snapshot());if(undoStack.length>80)undoStack.shift();redoStack=[];}
 function applySnap(s){const o=JSON.parse(s);
   A.clips=o.clips.map(c=>({id:++cid,...c}));A.cues.forEach((c,i)=>c.text=o.cu[i]);
   A.style={...DEF_STYLE,...o.style};A.bgm={...A.bgm,...o.bgm};
+  A.overlays=(o.overlays||[]).map(x=>({...x}));A.ovSel=Math.min(A.ovSel,A.overlays.length-1);
   A.playIdx=Math.min(A.playIdx,A.clips.length-1);
-  syncStyleControls();syncBgmControls();renderCues();redraw();}
+  syncStyleControls();syncBgmControls();syncOvCtl();renderCues();redraw();renderOverlays();}
 function undo(){if(!undoStack.length)return;redoStack.push(snapshot());applySnap(undoStack.pop());save();}
 function redo(){if(!redoStack.length)return;undoStack.push(snapshot());applySnap(redoStack.pop());save();}
 
 function save(){if(!A)return;localStorage.setItem("capcut",JSON.stringify({id:A.id,
   clips:A.clips.map(c=>({srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
-  cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm}}));}
+  cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
+  overlays:A.overlays.map(o=>({...o}))}));}
 
 // ----- 타임라인 그리기 -----
 function px(t){return t*A.pxPerSec;}
@@ -414,6 +443,7 @@ function redraw(){if(!A)return;const {starts,total,dv}=layout();
   $("#aDur").textContent=`${fmt(A.duration)} / ${fmt(total)}`;
   $("#aClips").textContent=A.clips.length;
   $("#aTrans").textContent=dv.filter(d=>d>0).length;
+  if(typeof drawOvLane==="function")drawOvLane();
   updatePh(starts);}
 function updatePh(starts){const c=A.clips[A.playIdx],v=$("#srcA");
   if(c&&starts)$("#ph").style.left=px((starts[A.playIdx]||0)+Math.max(0,(v.currentTime||0)-c.srcIn))+"px";}
@@ -501,16 +531,64 @@ $("#stPosReset").onclick=()=>{pushHistory();A.style.posX=null;A.style.posY=null;
 $("#subA").onchange=()=>{overlay($("#srcA").currentTime);redraw();};
 
 // ----- BGM -----
-function syncBgmControls(){$("#bgmCk").checked=A.bgm.enabled;$("#bgmCtl").style.display=A.bgm.enabled?"":"none";
+function syncBgmControls(){const on=A.bgm.enabled;$("#bgmCtl").style.display=on?"":"none";
+  $("#bgmBtn").textContent=on?"🎵 음악 켜짐":"🎵 음악 추가";
+  $("#bgmName").textContent=on&&A.bgm.file?A.bgm.file:"";
   $("#bgmVol").value=Math.round(A.bgm.volume*100);$("#bgmFade").value=A.bgm.fadeIn;}
-$("#bgmCk").onchange=()=>{if($("#bgmCk").checked){if(!A.bgm.file){$("#bgmFile").click();}else{A.bgm.enabled=true;syncBgmControls();redraw();save();}}
-  else{A.bgm.enabled=false;syncBgmControls();redraw();save();}};
-$("#bgmFile").onchange=async()=>{const f=$("#bgmFile").files[0];if(!f){$("#bgmCk").checked=false;return;}
-  const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
+$("#bgmBtn").onclick=()=>$("#bgmFile").click();
+$("#bgmFile").onchange=async()=>{const f=$("#bgmFile").files[0];if(!f)return;
+  $("#msgA").textContent="음악 업로드…";const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   await fetch("/api/bgm",{method:"POST",body:fd});A.bgm.file=f.name;A.bgm.enabled=true;
-  syncBgmControls();redraw();save();$("#msgA").textContent="배경음악 "+f.name;};
+  syncBgmControls();redraw();save();$("#msgA").textContent="배경음악: "+f.name;};
+$("#bgmDel").onclick=()=>{A.bgm.enabled=false;syncBgmControls();redraw();save();$("#msgA").textContent="";};
 $("#bgmVol").oninput=()=>{A.bgm.volume=(+$("#bgmVol").value)/100;redraw();};$("#bgmVol").onchange=save;
 $("#bgmFade").oninput=()=>{A.bgm.fadeIn=A.bgm.fadeOut=+$("#bgmFade").value;};$("#bgmFade").onchange=save;
+
+// ----- 오버레이(로고·이미지) -----
+function renderOverlays(){
+  const wrap=$(".vidwrap");wrap.querySelectorAll(".ovimg").forEach(e=>e.remove());
+  A.overlays.forEach((o,i)=>{const img=document.createElement("img");img.className="ovimg"+(i===A.ovSel?" sel":"");
+    img.src=o.url;img.draggable=false;
+    const W=$("#srcA").clientWidth||640,H=$("#srcA").clientHeight||360;
+    img.style.width=(o.scale*W)+"px";img.style.left=(o.x*W)+"px";img.style.top=(o.y*H)+"px";
+    img.style.transform="translate(-50%,-50%)";img.style.opacity=o.opacity;
+    img.onpointerdown=e=>ovImgDrag(e,i);wrap.appendChild(img);});
+}
+function selectOv(i){A.ovSel=i;syncOvCtl();renderOverlays();drawOvLane();}
+function syncOvCtl(){const o=A.overlays[A.ovSel];$("#ovCtl").style.display=o?"":"none";
+  if(!o)return;$("#ovScale").value=Math.round(o.scale*100);$("#ovOpacity").value=Math.round(o.opacity*100);
+  $("#ovStart").value=o.start!=null?o.start:"";$("#ovEnd").value=o.end!=null?o.end:"";}
+$("#ovAdd").onclick=()=>$("#ovFile").click();
+$("#ovFile").onchange=async()=>{const f=$("#ovFile").files[0];if(!f)return;
+  $("#msgA").textContent="이미지 업로드…";const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
+  const j=await(await fetch("/api/overlay",{method:"POST",body:fd})).json();
+  if(j.error){$("#msgA").textContent="업로드 실패";return;}
+  pushHistory();A.overlays.push({token:j.token,url:j.url,name:j.name,x:0.85,y:0.12,scale:0.18,opacity:1,start:null,end:null});
+  A.ovSel=A.overlays.length-1;syncOvCtl();renderOverlays();drawOvLane();save();$("#msgA").textContent="로고/이미지 추가됨";};
+function ovImgDrag(e,i){e.preventDefault();A.ovSel=i;syncOvCtl();renderOverlays();drawOvLane();pushHistory();
+  const v=$("#srcA"),r=v.getBoundingClientRect(),o=A.overlays[i];
+  const mv=ev=>{o.x=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width));
+    o.y=Math.max(0,Math.min(1,(ev.clientY-r.top)/r.height));renderOverlays();};
+  const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);save();};
+  document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
+$("#ovScale").oninput=()=>{const o=A.overlays[A.ovSel];if(o){o.scale=(+$("#ovScale").value)/100;renderOverlays();}};
+$("#ovScale").onchange=()=>{pushHistory();save();};
+$("#ovOpacity").oninput=()=>{const o=A.overlays[A.ovSel];if(o){o.opacity=(+$("#ovOpacity").value)/100;renderOverlays();}};
+$("#ovOpacity").onchange=()=>{pushHistory();save();};
+document.querySelectorAll("#ovPanel [data-c]").forEach(b=>b.onclick=()=>{const o=A.overlays[A.ovSel];if(!o)return;
+  pushHistory();const c=b.dataset.c;o.x=c[0]==="l"?0.13:0.87;o.y=c[1]==="t"?0.12:0.88;renderOverlays();save();});
+function ovRange(){const o=A.overlays[A.ovSel];if(!o)return;
+  const s=parseFloat($("#ovStart").value),e=parseFloat($("#ovEnd").value);
+  o.start=isNaN(s)?null:s;o.end=isNaN(e)?null:e;drawOvLane();save();}
+$("#ovStart").onchange=()=>{pushHistory();ovRange();};$("#ovEnd").onchange=()=>{pushHistory();ovRange();};
+$("#ovDel").onclick=()=>{if(A.ovSel<0)return;pushHistory();A.overlays.splice(A.ovSel,1);A.ovSel=-1;
+  syncOvCtl();renderOverlays();drawOvLane();save();};
+function drawOvLane(){const lo=$("#laneO");lo.innerHTML="";$("#laneHO").style.opacity=A.overlays.length?1:.4;
+  const total=layout().total;
+  A.overlays.forEach((o,i)=>{const el=document.createElement("div");el.className="oclip"+(i===A.ovSel?" sel":"");
+    const s=o.start!=null?o.start:0,e=o.end!=null?o.end:total;
+    el.style.left=px(s)+"px";el.style.width=Math.max(10,px(e-s))+"px";
+    el.textContent="🖼 "+(o.name||"이미지");el.onclick=()=>selectOv(i);lo.appendChild(el);});}
 
 // ----- 줌 -----
 function setZoom(f){const sc=$("#tlScroll"),mid=(sc.scrollLeft+sc.clientWidth/2)/Math.max(1,px(layout().total));
@@ -537,7 +615,8 @@ $("#newA").onclick=()=>{localStorage.removeItem("capcut");location.reload();};
 // ----- 추출 / 미리보기 -----
 function payload(){return{id:A.id,clips:A.clips.map(c=>({srcIn:c.srcIn,srcEnd:c.srcEnd,transition:c.transition})),
   subtitles:$("#subA").checked,cues:A.cues,style:A.style,
-  bgm:A.bgm.enabled,bgmOpts:{volume:A.bgm.volume,fadeIn:A.bgm.fadeIn,fadeOut:A.bgm.fadeOut}};}
+  bgm:A.bgm.enabled,bgmOpts:{volume:A.bgm.volume,fadeIn:A.bgm.fadeIn,fadeOut:A.bgm.fadeOut},
+  overlays:A.overlays.map(o=>({token:o.token,x:o.x,y:o.y,scale:o.scale,opacity:o.opacity,start:o.start,end:o.end}))};}
 async function startJob(url,statusUrl,label){$("#prog").style.width="0";$("#msgA").textContent=label+" 시작…";
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
   const j=await r.json();if(j.error){alert(label+" 실패: "+j.error+" (서버 재시작 시 영상 재업로드 필요)");return;}
@@ -570,7 +649,7 @@ $("#genB").onclick=async()=>{const fd=new FormData();fd.append("script",$("#scri
   processSSE(j.id,res=>{$("#genB").disabled=false;$("#genB").textContent="영상 생성";
     initEditor(j.id,res);});};   // 모드 A와 같은 편집기로 진입
 
-window.addEventListener("resize",()=>{if(A){redraw();applyOvStyle();}});
+window.addEventListener("resize",()=>{if(A){redraw();applyOvStyle();renderOverlays();}});
 loadVoices();loadFonts();tryRestore();
 </script>
 </body>

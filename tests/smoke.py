@@ -200,8 +200,21 @@ def main() -> int:
     check("글꼴 반영", "Black Han Sans" in ass)
     check("자유위치 \\an5\\pos", "\\an5\\pos(640,576)" in ass)
 
-    # --- 11) JOBS 디스크 영속성 라운드트립 ---
-    print("\n[11] 상태 영속성 (save→load 라운드트립)")
+    # --- 11) 이미지 오버레이(로고) 합성 ---
+    print("\n[11] 오버레이(로고) 합성 + 구간")
+    logo = str(SAMPLE.parent / "img_0.png")
+    out_ov = str(tmp / "overlay.mp4")
+    ov = [{"path": logo, "x": 0.85, "y": 0.12, "scale": 0.18, "opacity": 0.9},
+          {"path": logo, "x": 0.2, "y": 0.8, "scale": 0.25, "opacity": 1.0,
+           "start": 1.0, "end": 3.0}]
+    pipeline.export_project(str(SAMPLE), [{"srcIn": 0, "srcEnd": 5}], out_ov,
+                            subtitles=False, overlays=ov)
+    pov = probe(out_ov)
+    check("오버레이 합성 디코딩 OK", pov.get("decodes", False))
+    check("오버레이 비디오+오디오 유지", set(pov.get("types", [])) >= {"video", "audio"})
+
+    # --- 12) JOBS 디스크 영속성 라운드트립 ---
+    print("\n[12] 상태 영속성 (save→load 라운드트립)")
     from app import main as webmain
     saved = dict(webmain.JOBS)            # 기존 보존
     try:

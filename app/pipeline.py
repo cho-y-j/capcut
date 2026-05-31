@@ -86,12 +86,13 @@ def _as_clips(items) -> List[dict]:
 def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = True,
                    cues: Sequence[dict] | None = None, style: dict | None = None,
                    bgm: str | None = None, bgm_opts: dict | None = None,
+                   overlays: Sequence[dict] | None = None,
                    model: str | None = None, normalize: bool = True,
                    progress: Optional[Callable[[float], None]] = None) -> str:
-    """클립 타임라인(순서·트랜지션) → MP4 추출 (+ 스타일 자막 번인 + 배경음악).
+    """클립 타임라인(순서·트랜지션) → MP4 (+ 스타일 자막 + 배경음악 + 이미지 오버레이).
 
     cues 시간은 **원본 타임라인** 기준 → 클립 레이아웃(재정렬·트랜지션)으로 remap.
-    progress(0~1): 점프컷/트랜지션 0~0.6, 자막번인 0.6~1.0 가중.
+    overlays(로고/이미지)는 컷·자막을 마친 출력 영상 위에 마지막에 합성한다.
     """
     clips = _as_clips(clips)
     if not clips:
@@ -100,6 +101,13 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
     vol = float(bo.get("volume", 0.16))
     fin, fout = float(bo.get("fadeIn", 0.0)), float(bo.get("fadeOut", 0.0))
     layout, total = render.clip_layout(clips)
+    has_ov = bool(overlays)
+    base = out_path if not has_ov else str(Path(out_path).with_suffix(".noov.mp4"))
+    # 진행률: 오버레이 있으면 영상/자막 0~0.85, 오버레이 0.85~1.0
+    span = 0.85 if has_ov else 1.0
+
+    def _scale(lo, hi):
+        return (lambda p: progress(lo + p * (hi - lo))) if progress else None
 
     def _render(dst, prog):
         return render.render_timeline(input_path, clips, dst, normalize=normalize,
@@ -107,24 +115,28 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                                       bgm_fade_out=fout, progress=prog)
 
     if not subtitles:
-        return _render(out_path, progress)
-
-    tmp = str(Path(out_path).with_suffix(".tmp.mp4"))
-    _render(tmp, (lambda p: progress(p * 0.6)) if progress else None)
-    if cues is not None:
-        cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
-                    for c in cues if c.get("text", "").strip()]
+        _render(base, _scale(0.0, span))
     else:
-        tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
-        cue_objs = subtitle.build_cues(tr["segments"])
-    cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
-    w, h, _ = probe_video(input_path)
-    ass = str(Path(out_path).with_suffix(".ass"))
-    subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h,
-                       **subtitle.style_to_kwargs(style))
-    render.burn_subtitles(tmp, ass, out_path, total_sec=total,
-                          progress=(lambda p: progress(0.6 + p * 0.4)) if progress else None)
-    Path(tmp).unlink(missing_ok=True)
+        tmp = str(Path(out_path).with_suffix(".tmp.mp4"))
+        _render(tmp, _scale(0.0, span * 0.6))
+        if cues is not None:
+            cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
+                        for c in cues if c.get("text", "").strip()]
+        else:
+            tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
+            cue_objs = subtitle.build_cues(tr["segments"])
+        cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
+        w, h, _ = probe_video(input_path)
+        ass = str(Path(out_path).with_suffix(".ass"))
+        subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h,
+                           **subtitle.style_to_kwargs(style))
+        render.burn_subtitles(tmp, ass, base, total_sec=total,
+                              progress=_scale(span * 0.6, span))
+        Path(tmp).unlink(missing_ok=True)
+
+    if has_ov:
+        render.apply_overlays(base, overlays, out_path, progress=_scale(0.85, 1.0))
+        Path(base).unlink(missing_ok=True)
     return out_path
 
 
@@ -140,22 +152,29 @@ def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
 
 
 def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = None,
-                   bgm_opts: dict | None = None,
+                   bgm_opts: dict | None = None, overlays: Sequence[dict] | None = None,
                    progress: Optional[Callable[[float], None]] = None) -> str:
-    """클립 타임라인을 저화질·고속 프록시로 렌더 → 실제 컷·트랜지션·오디오 미리보기.
+    """클립 타임라인을 저화질·고속 프록시로 렌더 → 실제 컷·트랜지션·오디오·오버레이 미리보기.
 
-    자막 번인은 생략(속도). 480p·ultrafast·crf30.
+    자막 번인은 생략(속도). 480p·ultrafast·crf30. 오버레이(로고/이미지)는 반영.
     """
     clips = _as_clips(clips)
     if not clips:
         raise ValueError("클립(보존 구간)이 비었습니다.")
     bo = bgm_opts or {}
-    return render.render_timeline(input_path, clips, out_path, normalize=True, bgm=bgm,
-                                  bgm_volume=float(bo.get("volume", 0.16)),
-                                  bgm_fade_in=float(bo.get("fadeIn", 0.0)),
-                                  bgm_fade_out=float(bo.get("fadeOut", 0.0)),
-                                  scale_h=480, preset="ultrafast", crf="30",
-                                  progress=progress)
+    has_ov = bool(overlays)
+    base = out_path if not has_ov else str(Path(out_path).with_suffix(".noov.mp4"))
+    render.render_timeline(input_path, clips, base, normalize=True, bgm=bgm,
+                           bgm_volume=float(bo.get("volume", 0.16)),
+                           bgm_fade_in=float(bo.get("fadeIn", 0.0)),
+                           bgm_fade_out=float(bo.get("fadeOut", 0.0)),
+                           scale_h=480, preset="ultrafast", crf="30",
+                           progress=(lambda p: progress(p * (0.8 if has_ov else 1.0))) if progress else None)
+    if has_ov:
+        render.apply_overlays(base, overlays, out_path, preset="ultrafast", crf="30",
+                              progress=(lambda p: progress(0.8 + p * 0.2)) if progress else None)
+        Path(base).unlink(missing_ok=True)
+    return out_path
 
 
 # ---------------- 모드 B: 이미지 → 내레이션 영상 ----------------

@@ -212,6 +212,47 @@ async def upload_bgm(id: str = Form(...), file: UploadFile = File(...)) -> JSONR
     return JSONResponse({"ok": True})
 
 
+@app.post("/api/overlay")
+async def upload_overlay(id: str = Form(...), file: UploadFile = File(...)) -> JSONResponse:
+    """로고/이미지 오버레이 업로드 → 토큰 반환. 미리보기는 /api/asset로 서빙."""
+    job = JOBS.get(id)
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    token = uuid.uuid4().hex[:8]
+    dest = config.UPLOAD_DIR / f"{id}_ov_{token}_{file.filename}"
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+    job.setdefault("assets", {})[token] = str(dest)
+    save_jobs()
+    return JSONResponse({"token": token, "url": f"/api/asset?id={id}&token={token}",
+                         "name": file.filename})
+
+
+@app.get("/api/asset")
+async def get_asset(id: str, token: str):
+    """업로드된 오버레이 자산 서빙 — 편집기 라이브 미리보기용."""
+    job = JOBS.get(id)
+    path = (job or {}).get("assets", {}).get(token)
+    if not path or not Path(path).exists():
+        return JSONResponse({"error": "unknown asset"}, status_code=404)
+    return FileResponse(path)
+
+
+def _resolve_overlays(job: dict, body: dict) -> list:
+    """요청 overlays(토큰 참조) → 파일 경로 포함 스펙. 알 수 없는 토큰은 건너뜀."""
+    assets = job.get("assets", {})
+    out = []
+    for ov in body.get("overlays") or []:
+        path = assets.get(ov.get("token"))
+        if not path:
+            continue
+        out.append({"path": path, "x": ov.get("x", 0.5), "y": ov.get("y", 0.1),
+                    "scale": ov.get("scale", 0.2), "opacity": ov.get("opacity", 1.0),
+                    "start": ov.get("start"), "end": ov.get("end")})
+    return out
+
+
 @app.post("/api/export")
 async def export(req: Request) -> JSONResponse:
     """백그라운드 추출 시작 → /api/export/status 로 진행률 폴링."""
@@ -227,6 +268,7 @@ async def export(req: Request) -> JSONResponse:
     style = body.get("style")
     bgm = job.get("bgm") if body.get("bgm") else None
     bgm_opts = body.get("bgmOpts") or {}
+    overlays = _resolve_overlays(job, body)
     out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
     EXPORT[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -237,7 +279,7 @@ async def export(req: Request) -> JSONResponse:
         try:
             await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
                                     subtitles=subtitles, cues=cues, style=style,
-                                    bgm=bgm, bgm_opts=bgm_opts, progress=_cb)
+                                    bgm=bgm, bgm_opts=bgm_opts, overlays=overlays, progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             EXPORT[jid].update(done=True, error=str(e))
@@ -263,6 +305,7 @@ async def preview(req: Request) -> JSONResponse:
     clips = _body_clips(body)
     bgm = job.get("bgm") if body.get("bgm") else None
     bgm_opts = body.get("bgmOpts") or {}
+    overlays = _resolve_overlays(job, body)
     out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
     PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -272,7 +315,7 @@ async def preview(req: Request) -> JSONResponse:
     async def _run():
         try:
             await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
-                                    bgm=bgm, bgm_opts=bgm_opts, progress=_cb)
+                                    bgm=bgm, bgm_opts=bgm_opts, overlays=overlays, progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))
