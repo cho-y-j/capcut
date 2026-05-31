@@ -78,8 +78,10 @@
   .vclip.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
   .vclip.drag{opacity:.5}
   .vclip .cap{position:absolute;bottom:1px;left:4px;font-size:9px;color:#fff;text-shadow:0 0 3px #000}
-  .vclip .h{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize;background:rgba(34,197,94,.45)}
-  .vclip .h.l{left:0}.vclip .h.r{right:0}
+  .vclip .h{position:absolute;top:0;bottom:0;width:11px;cursor:ew-resize;background:rgba(34,197,94,.85);
+    border:1px solid #04130a}
+  .vclip .h:hover{background:var(--accent)}
+  .vclip .h.l{left:0;border-radius:5px 0 0 5px}.vclip .h.r{right:0;border-radius:0 5px 5px 0}
   .tbadge{position:absolute;top:14px;width:18px;height:18px;border-radius:50%;background:#1d1d1d;border:1px solid var(--line);color:var(--dim);font-size:10px;text-align:center;line-height:16px;cursor:pointer;z-index:6}
   .tbadge.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
   .bar2{position:absolute;top:0;height:22px;border-radius:4px;font-size:10px;padding:3px 5px;overflow:hidden;white-space:nowrap;cursor:grab}
@@ -123,7 +125,7 @@
 <body>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>ONCUT</h1><span class="chip num">v0.9.0</span><span class="chip">AI 영상 편집</span></header>
+    <h1>ONCUT</h1><span class="chip num">v0.9.1</span><span class="chip">AI 영상 편집</span></header>
   <p class="sub">영상 던지고 체크만 → AI가 컷·자막·정리 자동 · 그다음 보면서 오른쪽 버튼으로 톡톡 편집 · 全 OS</p>
 
   <!-- 시작 화면 -->
@@ -215,7 +217,7 @@
         <div class="addgrid">
           <button class="btn add sm" id="addText">➕ 텍스트</button>
           <button class="btn add sm" id="addLogo">🖼 로고/이미지</button>
-          <button class="btn add sm" id="addSfx">🔔 효과음</button>
+          <button class="btn add sm" id="addSfx">🔔 효과음 파일</button>
           <button class="btn add sm" id="addMusic">🎵 배경음악</button>
           <button class="btn add sm" id="addCut">✂️ 자르기</button>
           <button class="btn add sm" id="newA">↺ 새 영상</button>
@@ -365,7 +367,11 @@ function onTime(){const v=$("#srcA");if(!A.clips.length)return;let c=A.clips[A.p
     if(A.playIdx<A.clips.length-1){A.playIdx++;v.currentTime=A.clips[A.playIdx].srcIn+0.001;}else v.pause();}
   const out=curOut();$("#ph").style.left=px(out)+"px";
   $("#tc").textContent=fmt(out)+" / "+fmt(layout().total);
-  overlaySub(v.currentTime);}
+  overlaySub(v.currentTime);
+  if(!A._dragging)renderStage();          // 시간에 따라 텍스트·버튼 나타났다 사라지게
+  // 효과음: 재생 중 해당 시각을 지날 때 1회 미리듣기
+  if(A.playing)A.sfx.forEach(s=>{if(out>=s.at&&out<s.at+0.25&&s._last!==Math.floor(out*4)){s._last=Math.floor(out*4);
+    try{const au=new Audio(s.url);au.volume=Math.min(1,s.volume);au.play().catch(()=>{});}catch(e){}}});}
 $("#playBtn").onclick=()=>{const v=$("#srcA");if(v.paused){const c=A.clips[A.playIdx];
   if(c&&(v.currentTime<c.srcIn||v.currentTime>=c.srcEnd))v.currentTime=c.srcIn+0.001;v.play();}else v.pause();};
 
@@ -395,17 +401,24 @@ function subDrag(e){e.preventDefault();e.stopPropagation();pushHistory();const v
   const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);renderInspector();save();};
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
 
-function renderStage(){const layer=$("#layer"),box=stageBox();
+function activeAt(o,t){return (o.start==null||t>=o.start-0.001)&&(o.end==null||t<o.end);}
+function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
   layer.querySelectorAll(".el").forEach(e=>e.remove());
-  A.texts.forEach((t,i)=>{const el=mkEl("text",i,t.x,t.y);
-    const d=document.createElement("div");d.className="txt";d.textContent=t.text||"텍스트";
-    d.style.fontFamily=`"${t.font}",sans-serif`;d.style.fontSize=Math.max(11,t.fontSize*box.h/(A.h||720))+"px";
-    d.style.color=t.color;d.style.fontWeight=t.bold?"700":"400";
-    const ow=Math.max(0,t.outlineW)*box.h/(A.h||720);
-    d.style.textShadow=ow>0?`0 0 ${ow}px ${t.outlineColor},0 0 ${ow}px ${t.outlineColor},0 0 ${ow}px ${t.outlineColor}`:"none";
+  A.texts.forEach((tx,i)=>{const sel=A.sel&&A.sel.type==="text"&&A.sel.i===i;
+    if(!sel&&!activeAt(tx,t))return;            // 시간 지나면 사라짐(선택 중엔 편집 위해 표시)
+    const el=mkEl("text",i,tx.x,tx.y);
+    const d=document.createElement("div");d.className="txt";d.textContent=tx.text||"텍스트";
+    if(!activeAt(tx,t))el.style.opacity=0.4;     // 선택했지만 현재 구간 밖이면 흐리게
+    d.style.fontFamily=`"${tx.font}",sans-serif`;d.style.fontSize=Math.max(11,tx.fontSize*box.h/(A.h||720))+"px";
+    d.style.color=tx.color;d.style.fontWeight=tx.bold?"700":"400";
+    const ow=Math.max(0,tx.outlineW)*box.h/(A.h||720);
+    d.style.textShadow=ow>0?`0 0 ${ow}px ${tx.outlineColor},0 0 ${ow}px ${tx.outlineColor},0 0 ${ow}px ${tx.outlineColor}`:"none";
     el.appendChild(d);el.ondblclick=()=>{select("text",i);const ta=$("#fldText");if(ta){ta.focus();ta.select();}};
     layer.appendChild(el);});
-  A.overlays.forEach((o,i)=>{const el=mkEl("overlay",i,o.x,o.y);el.style.width=(o.scale*box.w)+"px";el.style.opacity=o.opacity;
+  A.overlays.forEach((o,i)=>{const sel=A.sel&&A.sel.type==="overlay"&&A.sel.i===i;
+    if(!sel&&!activeAt(o,t))return;               // 로고는 start=null이면 항상 표시
+    const el=mkEl("overlay",i,o.x,o.y);el.style.width=(o.scale*box.w)+"px";
+    el.style.opacity=activeAt(o,t)?o.opacity:0.4;
     const img=document.createElement("img");img.src=o.url;el.appendChild(img);layer.appendChild(el);});
 }
 function mkEl(type,i,x,y){const el=document.createElement("div");
@@ -492,10 +505,11 @@ function barDrag(e,type,i,kind){e.preventDefault();e.stopPropagation();select(ty
     else o.end=Math.max(s0+0.2,e0+dt);redraw();};
   const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);renderInspector();save();};
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
+function previewSfx(url,vol){try{const a=new Audio(url);a.volume=Math.min(1,vol||1);a.play().catch(()=>{});}catch(e){}}
 function drawSfx(){const ln=$("#laneF");ln.innerHTML="";
   A.sfx.forEach((s,i)=>{const el=document.createElement("div");el.className="fmark"+(A.sel&&A.sel.type==="sfx"&&A.sel.i===i?" sel":"");
-    el.style.left=px(s.at)+"px";el.textContent="🔔";el.title=(s.name||"")+" @"+s.at.toFixed(1)+"s";
-    el.onpointerdown=e=>{e.preventDefault();select("sfx",i);pushHistory();const startX=e.clientX,at0=s.at;
+    el.style.left=px(s.at)+"px";el.textContent="🔔";el.title=(s.name||"")+" @"+s.at.toFixed(1)+"s (클릭=듣기)";
+    el.onpointerdown=e=>{e.preventDefault();select("sfx",i);previewSfx(s.url,s.volume);pushHistory();const startX=e.clientX,at0=s.at;
       const mv=ev=>{s.at=Math.max(0,at0+(ev.clientX-startX)/A.pxPerSec);redraw();};
       const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);renderInspector();save();};
       document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);};ln.appendChild(el);});}
@@ -549,7 +563,8 @@ $("#addSfx").onclick=()=>$("#sfxFile").click();
 $("#sfxFile").onchange=async()=>{const f=$("#sfxFile").files[0];if(!f)return;const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   const j=await(await fetch("/api/sfx",{method:"POST",body:fd})).json();if(j.error)return;
   pushHistory();A.sfx.push({id:++cid,token:j.token,url:j.url,name:j.name,at:curOut(),volume:1});
-  A.sel={type:"sfx",i:A.sfx.length-1};redraw();renderInspector();save();};
+  A.sel={type:"sfx",i:A.sfx.length-1};previewSfx(j.url,1);redraw();renderInspector();save();
+  $("#msgA").textContent="효과음 추가: "+j.name+" @"+curOut().toFixed(1)+"s";};
 $("#addMusic").onclick=()=>$("#bgmFile").click();
 $("#bgmFile").onchange=async()=>{const f=$("#bgmFile").files[0];if(!f)return;const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   await fetch("/api/bgm",{method:"POST",body:fd});A.bgm.file=f.name;A.bgm.enabled=true;select("bgm",0);redraw();save();$("#msgA").textContent="배경음악: "+f.name;};
@@ -580,7 +595,8 @@ function renderPresetChips(){const box=$("#presetChips");box.innerHTML="";
       A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();};box.appendChild(b);});
   (PRESETS.sounds||[]).forEach(p=>{const b=document.createElement("button");b.className="chip-btn";b.textContent="🔔"+p.label;
     b.onclick=()=>{pushHistory();A.sfx.push({id:++cid,preset:p.id,url:p.url,name:p.label,at:curOut(),volume:1});
-      A.sel={type:"sfx",i:A.sfx.length-1};redraw();renderInspector();save();};box.appendChild(b);});}
+      A.sel={type:"sfx",i:A.sfx.length-1};previewSfx(p.url,1);redraw();renderInspector();save();
+      $("#msgA").textContent="효과음 "+p.label+" @"+curOut().toFixed(1)+"s";};box.appendChild(b);});}
 
 // ===== 인스펙터 (선택 요소 속성) =====
 function fldRange(label,id,min,max,step,val){return `<div class="fld"><label>${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`;}
@@ -640,9 +656,15 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
     $("#fB_fade").oninput=e=>{A.bgm.fadeIn=A.bgm.fadeOut=+e.target.value;};$("#fB_fade").onchange=()=>{pushHistory();save();};
     $("#fB_del").onclick=()=>{pushHistory();A.bgm.enabled=false;deselect();redraw();save();};
   }else if(sel.type==="clip"){const c=A.clips[sel.i];if(!c){deselect();return;}
-    b.innerHTML=`<h3>클립 ${sel.i+1}</h3><div class="hint num">길이 ${clipDur(c).toFixed(2)}s · 원본 ${c.srcIn.toFixed(1)}~${c.srcEnd.toFixed(1)}</div>
+    b.innerHTML=`<h3>클립 ${sel.i+1} · 길이 ${clipDur(c).toFixed(2)}s</h3>
+      ${fldText("시작(초)","fC_in",c.srcIn.toFixed(2))}${fldText("끝(초)","fC_out",c.srcEnd.toFixed(2))}
+      ${fldRange("길이","fC_len",0.3,Math.max(0.5,(A.duration-c.srcIn).toFixed(1)),0.1,clipDur(c))}
       <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="fC_split">✂️ 여기서 분할</button><button class="btn ghost sm" id="fC_del">삭제</button></div>
-      <div class="hint" style="margin-top:6px">클립 끝을 타임라인에서 끌면 길이 조절</div>`;
+      <div class="hint" style="margin-top:6px">길이 슬라이더로 끝을 늘리거나 줄여요 · 타임라인 클립 끝(초록)을 끌어도 됨</div>`;
+    $("#fC_in").onchange=e=>{pushHistory();const v=Math.max(0,Math.min(c.srcEnd-0.1,parseFloat(e.target.value)||0));c.srcIn=v;redraw();renderInspector();save();};
+    $("#fC_out").onchange=e=>{pushHistory();const v=Math.max(c.srcIn+0.1,Math.min(A.duration,parseFloat(e.target.value)||c.srcEnd));c.srcEnd=v;redraw();renderInspector();save();};
+    $("#fC_len").oninput=e=>{c.srcEnd=Math.min(A.duration,c.srcIn+ (+e.target.value));redraw();};
+    $("#fC_len").onchange=()=>{pushHistory();renderInspector();save();};
     $("#fC_split").onclick=()=>{seekOut(layout().starts[sel.i]+clipDur(c)/2);splitAt();};
     $("#fC_del").onclick=()=>{if(A.clips.length<=1)return;pushHistory();A.clips.splice(sel.i,1);A.playIdx=Math.min(A.playIdx,A.clips.length-1);deselect();redraw();save();};
   }else if(sel.type==="cue"){const c=A.cues[sel.i];if(!c){deselect();return;}
