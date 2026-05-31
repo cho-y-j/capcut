@@ -281,16 +281,20 @@ def burn_subtitles(video: str, ass_path: str, out_path: str,
     return out_path
 
 
-def apply_overlays(video: str, overlays: Sequence[dict], out_path: str, *,
-                   preset: str | None = None, crf: str | None = None,
-                   progress: ProgressCB = None) -> str:
-    """영상 위에 이미지(로고/워터마크/사진) 오버레이 합성. out_path 반환.
+def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = None,
+              sfx: Sequence[dict] | None = None, preset: str | None = None,
+              crf: str | None = None, progress: ProgressCB = None) -> str:
+    """최종 합성 패스 — 이미지 오버레이(로고/버튼) + 효과음(SFX)을 한 번에.
 
-    overlay = {path, x, y(정규화 중심 0~1), scale(가로비 0~1), opacity, start?, end?}.
-    위치는 출력 타임라인 기준. start/end 주면 그 구간에만 표시(enable). 오디오는 copy.
+    overlay = {path, x, y(중심 0~1), scale(가로비), opacity, start?, end?, fade?}.
+      fade>0 이면 표시구간 경계에서 알파 페이드 인/아웃(부드럽게 등장/퇴장).
+    sfx     = {path, at(초), volume?}. 해당 시각에 1회 믹스(반복 안 함).
+    위치·시각은 출력 타임라인 기준. 둘 다 없으면 video 그대로 반환.
     """
     from .silence import probe_duration, probe_video
-    if not overlays:
+    overlays = list(overlays or [])
+    sfx = list(sfx or [])
+    if not overlays and not sfx:
         return video
     preset = config.PRESET if preset is None else preset
     crf = config.CRF if crf is None else crf
@@ -300,30 +304,62 @@ def apply_overlays(video: str, overlays: Sequence[dict], out_path: str, *,
 
     inputs: List[str] = ["-i", video]
     P: List[str] = []
+    nin = 0   # 입력 인덱스 (video = 0)
+
+    # --- 비디오: 오버레이 ---
+    vmap = "0:v"
     cur = "0:v"
     for i, ov in enumerate(overlays):
-        inputs += ["-i", ov["path"]]
-        idx = i + 1
+        inputs += ["-loop", "1", "-t", f"{total:.3f}", "-i", ov["path"]]
+        nin += 1
+        idx = nin
         ow = max(2, int(W * float(ov.get("scale", 0.2))))
         op = max(0.0, min(1.0, float(ov.get("opacity", 1.0))))
         px, py = float(ov.get("x", 0.5)), float(ov.get("y", 0.1))
-        P.append(f"[{idx}:v]scale={ow}:-1,format=rgba,colorchannelmixer=aa={op:.3f}[ov{i}]")
-        en = ""
         s, e = ov.get("start"), ov.get("end")
+        fd = float(ov.get("fade", 0.0) or 0.0)
+        chain = f"[{idx}:v]scale={ow}:-1,format=rgba,colorchannelmixer=aa={op:.3f}"
+        en = ""
         if s is not None and e is not None:
-            en = f":enable='between(t,{float(s):.3f},{float(e):.3f})'"
+            s, e = float(s), float(e)
+            if fd > 0:                       # 알파 페이드 → enable 불필요(알파가 가시성 처리)
+                fd = min(fd, (e - s) / 2)
+                chain += (f",fade=t=in:st={s:.3f}:d={fd:.3f}:alpha=1"
+                          f",fade=t=out:st={max(s, e - fd):.3f}:d={fd:.3f}:alpha=1")
+            else:
+                en = f":enable='between(t,{s:.3f},{e:.3f})'"
+        P.append(f"{chain}[ov{i}]")
         nb = f"b{i}"
         P.append(f"[{cur}][ov{i}]overlay=x=W*{px}-w/2:y=H*{py}-h/2{en}[{nb}]")
         cur = nb
+    if overlays:
+        vmap = f"[{cur}]"
+
+    # --- 오디오: 효과음 믹스 ---
+    amap = "0:a"
+    if sfx:
+        labels = ["[0:a]"]
+        for j, sx in enumerate(sfx):
+            inputs += ["-i", sx["path"]]
+            nin += 1
+            idx = nin
+            at = max(0.0, float(sx.get("at", 0.0)))
+            vol = float(sx.get("volume", 1.0))
+            P.append(f"[{idx}:a]adelay={int(at*1000)}:all=1,volume={vol:.3f}[sf{j}]")
+            labels.append(f"[sf{j}]")
+        P.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:"
+                 f"normalize=0:dropout_transition=0[aout]")
+        amap = "[aout]"
 
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
         f.write(";".join(P))
         gp = f.name
     cmd = [config.FFMPEG, "-y", *inputs, "-filter_complex_script", gp,
-           "-map", f"[{cur}]", "-map", "0:a?",
-           "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
-           "-pix_fmt", "yuv420p", "-c:a", "copy",
-           "-movflags", "+faststart", out_path]
+           "-map", vmap, "-map", amap]
+    cmd += (["-c:v", "copy"] if vmap == "0:v" else
+            ["-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p"])
+    cmd += (["-c:a", "copy"] if amap == "0:a" else ["-c:a", "aac", "-b:a", "192k"])
+    cmd += ["-movflags", "+faststart", out_path]
     try:
         _run_with_progress(cmd, total, progress)
     finally:

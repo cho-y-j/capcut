@@ -13,6 +13,7 @@ cache/
 out/
 uploads/
 samples/
+app/static/assets/
 
 # media
 *.mp4

@@ -213,8 +213,34 @@ def main() -> int:
     check("오버레이 합성 디코딩 OK", pov.get("decodes", False))
     check("오버레이 비디오+오디오 유지", set(pov.get("types", [])) >= {"video", "audio"})
 
-    # --- 12) JOBS 디스크 영속성 라운드트립 ---
-    print("\n[12] 상태 영속성 (save→load 라운드트립)")
+    # --- 12) 효과음(SFX) + 오버레이 페이드 + 내장 프리셋 ---
+    print("\n[12] 효과음 믹스 + 페이드 + 내장 프리셋")
+    from app import assets
+    assets.ensure_assets()
+    pr = assets.presets()
+    check("내장 버튼 프리셋 존재", len(pr["buttons"]) >= 1)
+    check("내장 효과음 프리셋 존재", len(pr["sounds"]) >= 1)
+    click = assets.preset_path("sfx_click")
+    btn = assets.preset_path("btn_subscribe")
+    check("프리셋 경로 해석", bool(click) and bool(btn) and Path(click).exists())
+    out_sx = str(tmp / "sfx.mp4")
+    ov = [{"path": btn, "x": 0.85, "y": 0.85, "scale": 0.22, "opacity": 1.0,
+           "start": 1.0, "end": 3.0, "fade": 0.4}]
+    sx = [{"path": click, "at": 1.0, "volume": 1.0},
+          {"path": assets.preset_path("sfx_ding"), "at": 3.0, "volume": 0.8}]
+    pipeline.export_project(str(SAMPLE), [{"srcIn": 0, "srcEnd": 5}], out_sx,
+                            subtitles=False, overlays=ov, sfx=sx)
+    psx = probe(out_sx)
+    check("SFX+오버레이 합성 디코딩 OK", psx.get("decodes", False))
+    check("비디오+오디오 유지", set(psx.get("types", [])) >= {"video", "audio"})
+    # SFX만(오버레이 없이) 도 동작
+    out_s2 = str(tmp / "sfxonly.mp4")
+    pipeline.export_project(str(SAMPLE), [{"srcIn": 0, "srcEnd": 4}], out_s2,
+                            subtitles=False, sfx=[{"path": click, "at": 0.5, "volume": 1.0}])
+    check("SFX 단독 합성 OK", probe(out_s2).get("decodes", False))
+
+    # --- 13) JOBS 디스크 영속성 라운드트립 ---
+    print("\n[13] 상태 영속성 (save→load 라운드트립)")
     from app import main as webmain
     saved = dict(webmain.JOBS)            # 기존 보존
     try:
