@@ -11,7 +11,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import asr, config, pipeline
+from . import asr, config, pipeline, waveform
 
 config.ensure_dirs()
 app = FastAPI(title="캡컷 에이전트")
@@ -20,6 +20,48 @@ app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 app.mount("/out", StaticFiles(directory=str(config.OUTPUT_DIR)), name="out")
 
 JOBS: Dict[str, dict] = {}
+EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
+PREVIEW: Dict[str, dict] = {}     # id -> {pct, done, url, error}
+
+JOBS_FILE = config.UPLOAD_DIR / "_jobs.json"
+
+
+def _serialize_job(job: dict) -> dict:
+    """JSON 저장용 뷰 — 모드 B의 Scene 데이터클래스를 dict로."""
+    j = dict(job)
+    if j.get("mode") == "b" and "scenes" in j:
+        j["scenes"] = [{"text": s.text, "image": s.image} for s in j["scenes"]]
+    return j
+
+
+def save_jobs() -> None:
+    """JOBS를 디스크에 영속화 — 서버 재시작해도 편집 작업 유지."""
+    try:
+        data = {k: _serialize_job(v) for k, v in JOBS.items()}
+        tmp = JOBS_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(JOBS_FILE)
+    except Exception:  # noqa: BLE001  (영속화 실패가 처리를 막아선 안 됨)
+        pass
+
+
+def load_jobs() -> None:
+    """기동 시 디스크에서 JOBS 복원 — 원본 파일이 사라진 작업은 건너뜀."""
+    if not JOBS_FILE.exists():
+        return
+    try:
+        data = json.loads(JOBS_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return
+    for k, v in data.items():
+        if v.get("mode") == "a" and not Path(v.get("path", "")).exists():
+            continue
+        if v.get("mode") == "b":
+            v["scenes"] = [pipeline.Scene(**s) for s in v.get("scenes", [])]
+        JOBS[k] = v
+
+
+load_jobs()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -36,6 +78,7 @@ async def upload(file: UploadFile = File(...)) -> JSONResponse:
         while chunk := await file.read(1 << 20):
             f.write(chunk)
     JOBS[job_id] = {"mode": "a", "path": str(dest), "filename": file.filename}
+    save_jobs()
     return JSONResponse({"id": job_id, "filename": file.filename})
 
 
@@ -60,6 +103,7 @@ async def modeb_upload(script: str = Form(...),
         scenes.append(pipeline.Scene(text=text, image=image))
     out = str(config.OUTPUT_DIR / f"{job_id}_modeb.mp4")
     JOBS[job_id] = {"mode": "b", "scenes": scenes, "out": out}
+    save_jobs()
     return JSONResponse({"id": job_id, "scenes": len(scenes), "url": f"/out/{Path(out).name}"})
 
 
@@ -81,6 +125,7 @@ async def _sse(job_id: str):
             else:
                 res = await pipeline.process_mode_b(job["scenes"], job["out"], progress=cb)
             job["result"] = res
+            save_jobs()
             await q.put({"type": "result", "data": res})
         except Exception as e:  # noqa: BLE001
             await q.put({"type": "error", "message": str(e)})
@@ -108,20 +153,108 @@ async def media(id: str):
     return FileResponse(job["path"])
 
 
+@app.get("/api/waveform")
+async def get_waveform(id: str) -> JSONResponse:
+    """타임라인 파형(peaks) — 말/무음을 눈으로."""
+    job = JOBS.get(id)
+    if not job or "path" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    import asyncio
+    pk = await asyncio.to_thread(waveform.peaks, job["path"])
+    return JSONResponse({"peaks": pk})
+
+
+@app.get("/api/job")
+async def get_job(id: str) -> JSONResponse:
+    """처리 결과 복원(새로고침 후)."""
+    job = JOBS.get(id)
+    if not job or "result" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    return JSONResponse({"result": job["result"]})
+
+
+@app.post("/api/bgm")
+async def upload_bgm(id: str = Form(...), file: UploadFile = File(...)) -> JSONResponse:
+    job = JOBS.get(id)
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    dest = config.UPLOAD_DIR / f"{id}_bgm_{file.filename}"
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+    job["bgm"] = str(dest)
+    save_jobs()
+    return JSONResponse({"ok": True})
+
+
 @app.post("/api/export")
 async def export(req: Request) -> JSONResponse:
+    """백그라운드 추출 시작 → /api/export/status 로 진행률 폴링."""
+    import asyncio
     body = await req.json()
-    job = JOBS.get(body["id"])
+    jid = body["id"]
+    job = JOBS.get(jid)
     if not job or job["mode"] != "a":
         return JSONResponse({"error": "unknown job"}, status_code=404)
     ranges = [(float(a), float(b)) for a, b in body["keep"]]
     subtitles = bool(body.get("subtitles", True))
-    cues = body.get("cues")  # 사용자가 수정한 자막(원본 타임라인 기준), 없으면 None
-    out = str(config.OUTPUT_DIR / f"{body['id']}_cut.mp4")
+    cues = body.get("cues")
+    bgm = job.get("bgm") if body.get("bgm") else None
+    out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
+    EXPORT[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
+
+    def _cb(p: float) -> None:
+        EXPORT[jid]["pct"] = p
+
+    async def _run():
+        try:
+            await asyncio.to_thread(pipeline.export_mode_a, job["path"], ranges, out,
+                                    subtitles=subtitles, cues=cues, bgm=bgm, progress=_cb)
+            EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
+        except Exception as e:  # noqa: BLE001
+            EXPORT[jid].update(done=True, error=str(e))
+
+    asyncio.create_task(_run())
+    return JSONResponse({"started": True})
+
+
+@app.get("/api/export/status")
+async def export_status(id: str) -> JSONResponse:
+    return JSONResponse(EXPORT.get(id, {"error": "no export"}))
+
+
+@app.post("/api/preview")
+async def preview(req: Request) -> JSONResponse:
+    """확정 보존구간을 저화질 프록시로 빠르게 렌더 → 실제 컷/오디오 미리보기."""
     import asyncio
-    await asyncio.to_thread(pipeline.export_mode_a, job["path"], ranges, out,
-                            subtitles=subtitles, cues=cues)
-    return JSONResponse({"url": f"/out/{Path(out).name}"})
+    body = await req.json()
+    jid = body["id"]
+    job = JOBS.get(jid)
+    if not job or job["mode"] != "a":
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    ranges = [(float(a), float(b)) for a, b in body["keep"]]
+    bgm = job.get("bgm") if body.get("bgm") else None
+    out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
+    PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
+
+    def _cb(p: float) -> None:
+        PREVIEW[jid]["pct"] = p
+
+    async def _run():
+        try:
+            await asyncio.to_thread(pipeline.preview_mode_a, job["path"], ranges, out,
+                                    bgm=bgm, progress=_cb)
+            PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
+        except Exception as e:  # noqa: BLE001
+            PREVIEW[jid].update(done=True, error=str(e))
+
+    asyncio.create_task(_run())
+    return JSONResponse({"started": True})
+
+
+@app.get("/api/preview/status")
+async def preview_status(id: str) -> JSONResponse:
+    return JSONResponse(PREVIEW.get(id, {"error": "no preview"}))
 
 
 @app.post("/api/capcut")

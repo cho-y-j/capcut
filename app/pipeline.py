@@ -62,21 +62,27 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
 
 def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
                   out_path: str, *, subtitles: bool = True,
-                  cues: Sequence[dict] | None = None,
-                  model: str | None = None, normalize: bool = True) -> str:
-    """사용자 확정 보존구간으로 점프컷 추출 (+ 자막 번인).
+                  cues: Sequence[dict] | None = None, bgm: str | None = None,
+                  model: str | None = None, normalize: bool = True,
+                  progress: Optional[Callable[[float], None]] = None) -> str:
+    """사용자 확정 보존구간으로 점프컷 추출 (+ 자막 번인 + 배경음악).
 
     cues 가 주어지면(사용자가 수정한 자막) 그것을 쓰고, 없으면 ASR 캐시에서 재생성.
     cues 의 시간은 **원본 타임라인** 기준 → 점프컷 후 타임라인으로 remap.
+    progress(0~1): 점프컷 0~0.6, 자막번인 0.6~1.0 가중.
     """
     segs = [Segment(float(a), float(b)) for a, b in kept_ranges if b > a]
     if not segs:
         raise ValueError("보존 구간이 비었습니다.")
+    total = render.total_kept(segs)
+
     if not subtitles:
-        return render.render_jumpcut(input_path, segs, out_path, normalize=normalize)
+        return render.render_jumpcut(input_path, segs, out_path, normalize=normalize,
+                                     bgm=bgm, progress=progress)
 
     tmp = str(Path(out_path).with_suffix(".tmp.mp4"))
-    render.render_jumpcut(input_path, segs, tmp, normalize=normalize)
+    render.render_jumpcut(input_path, segs, tmp, normalize=normalize, bgm=bgm,
+                          progress=(lambda p: progress(p * 0.6)) if progress else None)
     if cues is not None:
         cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
                     for c in cues if c.get("text", "").strip()]
@@ -86,9 +92,25 @@ def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
     cue_objs = subtitle.remap_cues(cue_objs, segs)
     ass = str(Path(out_path).with_suffix(".ass"))
     subtitle.write_ass(cue_objs, ass)
-    render.burn_subtitles(tmp, ass, out_path)
+    render.burn_subtitles(tmp, ass, out_path, total_sec=total,
+                          progress=(lambda p: progress(0.6 + p * 0.4)) if progress else None)
     Path(tmp).unlink(missing_ok=True)
     return out_path
+
+
+def preview_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
+                   out_path: str, *, bgm: str | None = None,
+                   progress: Optional[Callable[[float], None]] = None) -> str:
+    """확정 보존구간을 저화질·고속 프록시로 렌더 → 실제 컷/오디오 페이드 미리보기.
+
+    자막 번인은 생략(속도). 480p·ultrafast·crf30. 진짜 컷 결과를 브라우저에서 재생.
+    """
+    segs = [Segment(float(a), float(b)) for a, b in kept_ranges if b > a]
+    if not segs:
+        raise ValueError("보존 구간이 비었습니다.")
+    return render.render_jumpcut(input_path, segs, out_path, normalize=True, bgm=bgm,
+                                 scale_h=480, preset="ultrafast", crf="30",
+                                 progress=progress)
 
 
 # ---------------- 모드 B: 이미지 → 내레이션 영상 ----------------
