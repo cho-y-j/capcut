@@ -111,3 +111,44 @@ def keep_segments(path: str, *, noise_db: float | None = None,
     # 너무 짧은 구간 제거
     kept = [s for s in merged if s.dur >= min_keep]
     return kept, duration
+
+
+_SENT_END = ".!?…。"
+
+
+def classify_silence_cuts(silences, segments, duration, *,
+                          keep_pause: float = 0.5, dead_min: float = 0.35,
+                          pad: float = 0.06) -> List[dict]:
+    """무음 구간을 '의도적 쉼(보존)' vs '데드에어/더듬(컷)'으로 분류해 컷 후보 산출.
+
+    핵심: 무음 직전 ASR 세그먼트가 문장부호로 끝나면 **문장 끝의 의도적 쉼** →
+    keep_pause 만큼 살리고 초과분만 컷. 문장 중간 무음은 더듬/데드에어 →
+    양끝 pad만 남기고 컷. (CLAUDE.md: 의도적 무음은 구분한다)
+    """
+    seg_ends = [(float(s["end"]), (s.get("text") or "").strip()) for s in segments]
+
+    def is_boundary(gs: float) -> bool:
+        best = None
+        for end, text in seg_ends:
+            if end <= gs + 0.25 and (best is None or end > best[0]):
+                best = (end, text)
+        if not best or not best[1]:
+            return False
+        return best[1][-1] in _SENT_END
+
+    cuts: List[dict] = []
+    for gs, ge in silences:
+        gs = max(0.0, float(gs))
+        ge = min(duration, float(ge)) if ge != float("inf") else duration
+        d = ge - gs
+        if d <= 0:
+            continue
+        if is_boundary(gs):
+            if d > keep_pause + 0.12:                     # 쉼은 살리고 초과분만
+                cuts.append({"start": gs + keep_pause, "end": ge,
+                             "reason": "긴 쉼", "text": ""})
+        else:
+            if d > dead_min:                              # 문장 중간 데드에어/더듬
+                cuts.append({"start": gs + pad, "end": ge - pad,
+                             "reason": "무음", "text": ""})
+    return [c for c in cuts if c["end"] - c["start"] > 0.08]

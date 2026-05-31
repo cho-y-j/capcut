@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from . import asr, config, filler, render, slideshow, subtitle, tts
-from .silence import Segment, keep_segments, probe_video
+from .silence import (Segment, classify_silence_cuts, detect_silences,
+                      keep_segments, probe_video)
 
 Progress = Optional[Callable[[str, str, str], None]]
 MIN_STEP = 0.5   # 단계당 최소 지연(애니메이션 가시화)
@@ -32,6 +33,7 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
                          progress: Progress = None) -> dict:
     _emit(progress, "silence", "run", "무음 감지 중")
     segs, duration = await asyncio.to_thread(keep_segments, input_path)
+    silences = await asyncio.to_thread(detect_silences, input_path)
     try:
         vw, vh, vfps = await asyncio.to_thread(probe_video, input_path)
     except Exception:  # noqa: BLE001
@@ -44,10 +46,14 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
     await _pause()
     _emit(progress, "asr", "done", f"{len(tr['segments'])}개 세그먼트")
 
-    _emit(progress, "filler", "run", "잔말/반복 탐지 중")
-    cuts = await asyncio.to_thread(filler.suggest_cuts, tr["segments"])
+    _emit(progress, "filler", "run", "무음·잔말·반복 탐지 중")
+    # 무음 컷(의도적 쉼은 보존) + 잔말/반복 컷을 합쳐 자동정리 후보로.
+    sil_cuts = classify_silence_cuts(silences, tr["segments"], duration)
+    fil_cuts = await asyncio.to_thread(filler.suggest_cuts, tr["segments"])
+    cuts = filler.merge_cuts(sil_cuts + fil_cuts)
     await _pause()
-    _emit(progress, "filler", "done", f"{len(cuts)}개 컷 후보")
+    _emit(progress, "filler", "done",
+          f"무음 {len(sil_cuts)} + 잔말 {len(fil_cuts)} → 컷 {len(cuts)}")
 
     _emit(progress, "draft", "run", "타임라인 구성 중")
     cues = subtitle.build_cues(tr["segments"])

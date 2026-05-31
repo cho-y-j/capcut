@@ -158,25 +158,34 @@ def style_to_kwargs(style: dict | None) -> dict:
     """UI 스타일 dict → write_ass 키워드. 미지정 키는 기본값 유지."""
     if not style:
         return {}
-    keymap = {"fontSize": "font_size", "color": "color", "outlineW": "outline_w",
-              "outlineColor": "outline_color", "align": "align", "bold": "bold",
-              "box": "box", "marginV": "margin_v_ratio"}
-    return {dst: style[src] for src, dst in keymap.items() if style.get(src) is not None}
+    keymap = {"font": "font", "fontSize": "font_size", "color": "color",
+              "outlineW": "outline_w", "outlineColor": "outline_color",
+              "align": "align", "bold": "bold", "box": "box",
+              "marginV": "margin_v_ratio", "shadow": "shadow"}
+    out = {dst: style[src] for src, dst in keymap.items() if style.get(src) is not None}
+    if style.get("posX") is not None and style.get("posY") is not None:
+        out["pos"] = (float(style["posX"]), float(style["posY"]))   # 정규화 0~1
+    return out
 
 
 def write_ass(cues: List[Cue], path: str, *, play_w: int = 1920, play_h: int = 1080,
-              font: str = "NanumGothic", font_size: int = 56,
+              font: str = "Noto Sans CJK KR", font_size: int = 56,
               color: str = "FFFFFF", outline_w: float = 3, outline_color: str = "000000",
               align: str = "bottom", bold: bool = True, box: bool = False,
-              margin_v_ratio: float = 0.08) -> str:
-    """번인용 ASS. 색·외곽선·위치·박스·굵기 스타일 지원, 하단 안전영역."""
+              margin_v_ratio: float = 0.08, shadow: float = 1.0,
+              pos: tuple | None = None) -> str:
+    """번인용 ASS. 글꼴·색·외곽선·그림자·위치(상/중/하 또는 자유좌표)·박스·굵기 지원.
+
+    pos=(x,y) 정규화 좌표가 주어지면 \\an5\\pos로 자유 배치(드래그 위치). 없으면
+    align(상/중/하) + 하단 안전영역 margin.
+    """
     margin_v = int(play_h * float(margin_v_ratio))
-    al = _ALIGN.get(align, 2)
+    al = 5 if pos else _ALIGN.get(align, 2)
     primary = _ass_color(color)
     outline = _ass_color(outline_color)
     border_style = 3 if box else 1                 # 3 = 불투명 박스, 1 = 외곽선+그림자
     back = _ass_color(outline_color, alpha="20") if box else "&H64000000"
-    shadow = 0 if box else 2
+    sh = 0 if box else float(shadow)
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {play_w}
@@ -185,15 +194,19 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{int(font_size)},{primary},{outline},{back},{1 if bold else 0},{border_style},{outline_w},{shadow},{al},60,60,{margin_v},1
+Style: Default,{font},{int(font_size)},{primary},{outline},{back},{1 if bold else 0},{border_style},{outline_w},{sh},{al},60,60,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    pre = ""
+    if pos:
+        x, y = int(pos[0] * play_w), int(pos[1] * play_h)
+        pre = f"{{\\an5\\pos({x},{y})}}"
     rows = []
     for c in cues:
         txt = c.text.replace("\n", "\\N")
-        rows.append(f"Dialogue: 0,{_ts_ass(c.start)},{_ts_ass(c.end)},Default,,0,0,0,,{txt}")
+        rows.append(f"Dialogue: 0,{_ts_ass(c.start)},{_ts_ass(c.end)},Default,,0,0,0,,{pre}{txt}")
     with open(path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(rows) + "\n")
     return path

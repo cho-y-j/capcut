@@ -61,3 +61,21 @@ def suggest_cuts(segments: List[dict], *, min_gap: float = 0.0) -> List[dict]:
         else:
             merged.append(c)
     return [asdict(c) for c in merged]
+
+
+def merge_cuts(cuts: List[dict]) -> List[dict]:
+    """여러 출처(무음+잔말)의 컷 후보를 시작순 정렬 + 겹침/인접 병합.
+
+    겹치거나 0.06s 이내로 붙은 컷은 하나로 합치고 이유를 결합("무음+잔말").
+    """
+    out: List[dict] = []
+    for c in sorted(cuts, key=lambda x: x["start"]):
+        if out and c["start"] - out[-1]["end"] <= 0.06:
+            out[-1]["end"] = max(out[-1]["end"], c["end"])
+            r0, r1 = out[-1].get("reason", ""), c.get("reason", "")
+            if r1 and r1 not in r0:
+                out[-1]["reason"] = f"{r0}+{r1}" if r0 else r1
+            out[-1]["text"] = (out[-1].get("text", "") + " " + c.get("text", "")).strip()
+        else:
+            out.append(dict(c))
+    return out

@@ -174,8 +174,34 @@ def main() -> int:
     check("스프라이트 폭=60칸", psp.get("width") == 60 * thumbnails.THUMB_W,
           str(psp.get("width")))
 
-    # --- 9) JOBS 디스크 영속성 라운드트립 ---
-    print("\n[9] 상태 영속성 (save→load 라운드트립)")
+    # --- 9) AI 자동편집: 의도적 무음 구분 ---
+    print("\n[9] 무음 분류 (의도적 쉼 vs 데드에어)")
+    sil = [(1.0, 2.0), (3.0, 3.5), (5.0, 7.0)]
+    segs_cls = [{"end": 1.0, "text": "안녕하세요."}, {"end": 3.0, "text": "이것은 테스트"},
+                {"end": 5.0, "text": "끝입니다."}]
+    scuts = silence.classify_silence_cuts(sil, segs_cls, 8.0, keep_pause=0.5)
+    check("문장끝 쉼 보존+초과만 컷",
+          any(c["reason"] == "긴 쉼" and abs(c["start"] - 1.5) < 0.01 for c in scuts))
+    check("문장중간 데드에어 컷", any(c["reason"] == "무음" for c in scuts))
+    # 잔말+무음 병합
+    from app import filler
+    merged = filler.merge_cuts([{"start": 1.0, "end": 1.5, "reason": "무음", "text": ""},
+                                {"start": 1.52, "end": 1.7, "reason": "잔말", "text": "음"}])
+    check("인접 컷 병합+이유결합", len(merged) == 1 and "무음" in merged[0]["reason"]
+          and "잔말" in merged[0]["reason"])
+
+    # --- 10) 자막 글꼴 + 자유 위치 ASS ---
+    print("\n[10] 자막 글꼴·자유위치")
+    fp = str(tmp / "fp.ass")
+    subtitle.write_ass([subtitle.Cue(0, 1, "x")], fp, play_w=1280, play_h=720,
+                       **subtitle.style_to_kwargs({"font": "Black Han Sans",
+                                                   "posX": 0.5, "posY": 0.8, "shadow": 2}))
+    ass = Path(fp).read_text(encoding="utf-8")
+    check("글꼴 반영", "Black Han Sans" in ass)
+    check("자유위치 \\an5\\pos", "\\an5\\pos(640,576)" in ass)
+
+    # --- 11) JOBS 디스크 영속성 라운드트립 ---
+    print("\n[11] 상태 영속성 (save→load 라운드트립)")
     from app import main as webmain
     saved = dict(webmain.JOBS)            # 기존 보존
     try:

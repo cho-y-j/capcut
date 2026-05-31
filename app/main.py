@@ -313,6 +313,48 @@ async def capcut(req: Request) -> JSONResponse:
     return JSONResponse({"dir": ddir})
 
 
+_CURATED_FONTS = [
+    ("노토 산스 (기본·가독)", "Noto Sans CJK KR"),
+    ("나눔고딕", "NanumGothic"),
+    ("나눔바른고딕", "NanumBarunGothic"),
+    ("나눔스퀘어라운드", "NanumSquareRound"),
+    ("고딕 A1", "Gothic A1"),
+    ("검은고딕 (임팩트)", "Black Han Sans"),
+    ("도현 (임팩트)", "Do Hyeon"),
+    ("주아 (둥글둥글)", "Jua"),
+    ("구기 (붓느낌)", "Gugi"),
+    ("나눔손글씨 펜", "Nanum Pen Script"),
+    ("개구 (손글씨)", "Gaegu"),
+]
+
+
+@app.get("/api/fonts")
+async def fonts() -> JSONResponse:
+    """설치된 한글 자막 글꼴 후보(큐레이션 ∩ 설치됨)."""
+    import asyncio
+    import subprocess
+
+    def _installed() -> set:
+        # :lang=ko 필터는 일부 한글 디스플레이 폰트(검은고딕 등)를 누락시켜 전체에서 매칭
+        try:
+            out = subprocess.run(["fc-list", "", "family"],
+                                 capture_output=True, text=True).stdout
+        except Exception:  # noqa: BLE001
+            return set()
+        names = set()
+        for line in out.splitlines():
+            for part in line.split(","):
+                names.add(part.strip())
+        return names
+
+    inst = await asyncio.to_thread(_installed)
+    avail = [{"label": lbl, "family": fam} for lbl, fam in _CURATED_FONTS
+             if any(fam == n or fam in n for n in inst)]
+    if not avail:
+        avail = [{"label": "기본", "family": "Noto Sans CJK KR"}]
+    return JSONResponse(avail)
+
+
 @app.get("/api/voices")
 async def voices() -> JSONResponse:
     from . import tts
