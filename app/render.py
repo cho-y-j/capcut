@@ -55,7 +55,8 @@ def _norm_clips(clips: Sequence[Clip]) -> List[dict]:
             ttype, tdur = "none", 0.0
         else:
             tdur = max(0.0, float(tr.get("dur", 0.0)))
-        out.append({"s": s, "e": e, "dur": e - s, "ttype": ttype, "tdur": tdur})
+        out.append({"s": s, "e": e, "dur": e - s, "ttype": ttype, "tdur": tdur,
+                    "src": str(c.get("src", "0"))})
     return out
 
 
@@ -94,13 +95,14 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
                     *, crossfade: float | None = None, normalize: bool = False,
                     bgm: str | None = None, bgm_volume: float = 0.16,
                     bgm_fade_in: float = 0.0, bgm_fade_out: float = 0.0,
-                    canvas: tuple | None = None,
+                    canvas: tuple | None = None, sources: dict | None = None,
                     scale_h: int | None = None, preset: str | None = None,
                     crf: str | None = None, progress: ProgressCB = None) -> str:
-    """클립을 순서대로(+경계 트랜지션) 이어붙여 MP4 생성. output_path 반환.
+    """클립(여러 소스: 영상/이미지)을 순서대로(+트랜지션) 이어붙여 MP4 생성.
 
-    하드컷 경계는 concat(+미세 afade로 팝 제거), 트랜지션 경계는 xfade/acrossfade.
-    scale_h: 프리뷰 프록시 다운스케일. preset/crf: 인코딩 속도·품질 오버라이드.
+    sources={token:{path,kind(video|image)}}, "0"=메인. 멀티소스·이미지·캔버스·
+    트랜지션이면 클립별로 공통 캔버스로 scale+crop+fps 정규화(concat/xfade 안전).
+    이미지 클립 오디오는 무음(aevalsrc). scale_h=프리뷰 다운스케일.
     """
     norm = _norm_clips(clips)
     if not norm:
@@ -112,6 +114,61 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     has_trans = any(d > 0 for d in dvals)
     lnorm = f"loudnorm=I={config.TARGET_LUFS:.1f}:TP=-1.5:LRA=11"
+    sources = dict(sources or {})
+
+    from .silence import probe_video
+    try:
+        mw, mh, mfps = probe_video(input_path)
+    except Exception:  # noqa: BLE001
+        mw, mh, mfps = 1280, 720, 30.0
+    tw, th = (int(canvas[0]), int(canvas[1])) if canvas else (mw, mh)
+    F = mfps if mfps and mfps > 0 else 30.0
+
+    def srcinfo(tok):
+        if tok in (None, "0"):
+            return {"kind": "video", "path": input_path}
+        return sources.get(tok, {"kind": "video", "path": input_path})
+
+    has_image = any(srcinfo(c["src"]).get("kind") == "image" for c in norm)
+    distinct = {srcinfo(c["src"]).get("path", input_path) for c in norm
+                if srcinfo(c["src"]).get("kind") != "image"}
+    multi = has_image or len(distinct) > 1
+    need_vnorm = has_trans or multi or bool(canvas)
+    ars = ",aresample=44100" if multi else ""
+    vsc = (f",scale={tw}:{th}:force_original_aspect_ratio=increase,"
+           f"crop={tw}:{th},setsar=1,fps={F:.5f}") if need_vnorm else ""
+
+    inputs: List[str] = ["-i", input_path]
+    path2idx = {input_path: 0}
+    clip_idx: List[int] = []
+    clip_kind: List[str] = []
+    nin = 1
+    for c in norm:
+        info = srcinfo(c["src"])
+        if info.get("kind") == "image":
+            inputs += ["-loop", "1", "-t", f"{c['dur'] + 0.1:.3f}", "-i", info["path"]]
+            clip_idx.append(nin); clip_kind.append("image"); nin += 1
+        else:
+            p = info.get("path", input_path)
+            if p in path2idx:
+                clip_idx.append(path2idx[p])
+            else:
+                inputs += ["-i", p]; path2idx[p] = nin; clip_idx.append(nin); nin += 1
+            clip_kind.append("video")
+
+    def vlabel(i: int) -> str:
+        idx, c = clip_idx[i], norm[i]
+        t = (f"[{idx}:v]trim=0:{c['dur']:.4f}" if clip_kind[i] == "image"
+             else f"[{idx}:v]trim=start={c['s']:.4f}:end={c['e']:.4f}")
+        return f"{t},setpts=PTS-STARTPTS{vsc}[v{i}]"
+
+    def alabel(i: int, fades: str, delay_ms: int | None = None) -> str:
+        idx, c = clip_idx[i], norm[i]
+        dl = f",adelay={delay_ms}:all=1" if delay_ms is not None else ""
+        if clip_kind[i] == "image":
+            return f"aevalsrc=0:d={c['dur']:.4f}:s=44100{fades}{dl}[a{i}]"
+        return (f"[{idx}:a]atrim=start={c['s']:.4f}:end={c['e']:.4f},"
+                f"asetpts=PTS-STARTPTS{ars}{fades}{dl}[a{i}]")
 
     def _afade(dur: float) -> str:
         cf = min(crossfade, dur / 2) if dur > 0 else 0.0
@@ -148,52 +205,36 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
         finally:
             Path(gp).unlink(missing_ok=True)
 
-    # ---- 하드컷 전용: 단일 패스 interleaved concat (검증된 견고 경로) ----
+    # ---- 하드컷 전용: 단일 패스 interleaved concat ----
     if not has_trans:
         P: List[str] = []
-        for i, c in enumerate(norm):
-            P.append(f"[0:v]trim=start={c['s']:.4f}:end={c['e']:.4f},setpts=PTS-STARTPTS[v{i}]")
-            P.append(f"[0:a]atrim=start={c['s']:.4f}:end={c['e']:.4f},"
-                     f"asetpts=PTS-STARTPTS{_afade(c['dur'])}[a{i}]")
+        for i in range(len(norm)):
+            P.append(vlabel(i))
+            P.append(alabel(i, _afade(norm[i]["dur"])))
         inter = "".join(f"[v{i}][a{i}]" for i in range(len(norm)))
         P.append(f"{inter}concat=n={len(norm)}:v=1:a=1[vc][ac]")
         cur = "vc"
-        if canvas:
-            tw, th = int(canvas[0]), int(canvas[1])
-            P.append(f"[{cur}]scale={tw}:{th}:force_original_aspect_ratio=increase,"
-                     f"crop={tw}:{th},setsar=1[vcv]")
-            cur = "vcv"
         if scale_h:
-            P.append(f"[{cur}]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
+            P.append(f"[vc]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
             cur = "vsc"
         vmap = f"[{cur}]"
         P.append(f"[ac]{lnorm}[spk]" if normalize else "[ac]anull[spk]")
-        inputs = ["-i", input_path]
+        ins = list(inputs)
         if bgm:
-            inputs += ["-stream_loop", "-1", "-i", bgm]
-            P.append(_bg(1))
+            ins += ["-stream_loop", "-1", "-i", bgm]
+            P.append(_bg(nin))
             P.append("[spk][bg]amix=inputs=2:duration=first:dropout_transition=0[aout]")
         else:
             P.append("[spk]anull[aout]")
-        _enc(inputs, ";".join(P), ["-map", vmap, "-map", "[aout]"], output_path,
+        _enc(ins, ";".join(P), ["-map", vmap, "-map", "[aout]"], output_path,
              total_sec=total, cb=progress)
         return output_path
 
-    # ---- 트랜지션 포함: 2-패스(영상→오디오→먹스) ----
-    # xfade(영상)와 acrossfade(오디오)를 한 그래프에 두면 필터 스케줄 deadlock 발생.
-    # 분리 렌더 후 먹스한다. xfade는 CFR 필요 → 영상 trim에 소스 fps 강제.
-    from .silence import probe_video
-    try:
-        _, _, src_fps = probe_video(input_path)
-    except Exception:  # noqa: BLE001
-        src_fps = 30.0
-    vfps = f",fps={src_fps:.5f}"
+    # ---- 트랜지션 포함: 2-패스(영상→오디오→먹스). xfade+acrossfade 한 그래프 deadlock 회피 ----
     tmp_v = str(Path(output_path).with_suffix(".v.mp4"))
     tmp_a = str(Path(output_path).with_suffix(".a.m4a"))
 
-    # 패스1: 영상 (xfade/concat 폴드)
-    Pv = [f"[0:v]trim=start={c['s']:.4f}:end={c['e']:.4f},setpts=PTS-STARTPTS{vfps}[v{i}]"
-          for i, c in enumerate(norm)]
+    Pv = [vlabel(i) for i in range(len(norm))]
     cv, acc = "v0", norm[0]["dur"]
     for i in range(1, len(norm)):
         nv, d = f"vt{i}", dvals[i]
@@ -207,38 +248,28 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
             acc += norm[i]["dur"]
         cv = nv
     cur = cv
-    if canvas:
-        tw, th = int(canvas[0]), int(canvas[1])
-        Pv.append(f"[{cur}]scale={tw}:{th}:force_original_aspect_ratio=increase,"
-                  f"crop={tw}:{th},setsar=1[vcv]")
-        cur = "vcv"
     if scale_h:
         Pv.append(f"[{cur}]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
         cur = "vsc"
-    vmap = f"[{cur}]"
-    _enc(["-i", input_path], ";".join(Pv), ["-map", vmap, "-an"], tmp_v,
+    _enc(inputs, ";".join(Pv), ["-map", f"[{cur}]", "-an"], tmp_v,
          total_sec=total, cb=(lambda p: progress(p * 0.75)) if progress else None,
          audio=False)
 
     # 패스2: 오디오 — 각 클립을 출력 시작시각(starts)에 adelay로 놓고 amix.
-    # 겹침 구간(트랜지션)은 양쪽 페이드가 합쳐져 크로스페이드가 된다. 하드컷 경계는
-    # 미세 페이드(팝 제거)만. acrossfade 체이닝이 빈 출력을 내는 버그를 회피한다.
     Pa: List[str] = []
     n = len(norm)
-    for i, c in enumerate(norm):
-        dur = c["dur"]
+    for i in range(n):
+        dur = norm[i]["dur"]
         d_in = dvals[i] if dvals[i] > 0 else min(crossfade, dur / 2)
         d_out = (dvals[i + 1] if i + 1 < n and dvals[i + 1] > 0
                  else min(crossfade, dur / 2))
         fades = (f",afade=t=in:st=0:d={d_in:.4f}"
                  f",afade=t=out:st={max(0.0, dur-d_out):.4f}:d={d_out:.4f}")
-        delay = int(round(starts[i] * 1000))
-        Pa.append(f"[0:a]atrim=start={c['s']:.4f}:end={c['e']:.4f},"
-                  f"asetpts=PTS-STARTPTS{fades},adelay={delay}:all=1[a{i}]")
+        Pa.append(alabel(i, fades, int(round(starts[i] * 1000))))
     mixin = "".join(f"[a{i}]" for i in range(n))
     Pa.append(f"{mixin}amix=inputs={n}:duration=longest:normalize=0:dropout_transition=0[amx]")
     Pa.append(f"[amx]{lnorm}[aout]" if normalize else f"[amx]anull[aout]")
-    _enc(["-i", input_path], ";".join(Pa), ["-map", "[aout]", "-vn"], tmp_a,
+    _enc(inputs, ";".join(Pa), ["-map", "[aout]", "-vn"], tmp_a,
          total_sec=total, cb=(lambda p: progress(0.75 + p * 0.10)) if progress else None,
          video=False)
 

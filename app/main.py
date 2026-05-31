@@ -176,12 +176,46 @@ async def process(id: str) -> StreamingResponse:
 
 
 @app.get("/api/media")
-async def media(id: str):
-    """원본 업로드 영상 서빙 — 브라우저 미리보기/편집용."""
+async def media(id: str, src: str = "0"):
+    """원본/추가 소스 영상·이미지 서빙. src=토큰(0=메인)."""
     job = JOBS.get(id)
-    if not job or "path" not in job:
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    if src and src != "0":
+        info = (job.get("sources") or {}).get(src)
+        if info and Path(info["path"]).exists():
+            return FileResponse(info["path"])
+    if "path" not in job:
         return JSONResponse({"error": "unknown job"}, status_code=404)
     return FileResponse(job["path"])
+
+
+@app.post("/api/addsource")
+async def add_source(id: str = Form(...), file: UploadFile = File(...)) -> JSONResponse:
+    """타임라인에 이어붙일 추가 영상/이미지 업로드 → 소스 토큰."""
+    job = JOBS.get(id)
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    token = uuid.uuid4().hex[:8]
+    dest = config.UPLOAD_DIR / f"{id}_src_{token}_{file.filename}"
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+    ct = (file.content_type or "")
+    ext = Path(file.filename or "").suffix.lower()
+    is_img = ct.startswith("image") or ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+    info = {"path": str(dest), "kind": "image" if is_img else "video", "name": file.filename}
+    if not is_img:
+        try:
+            import asyncio
+            from .silence import probe_duration
+            info["duration"] = round(await asyncio.to_thread(probe_duration, str(dest)), 2)
+        except Exception:  # noqa: BLE001
+            info["duration"] = 5.0
+    job.setdefault("sources", {})[token] = info
+    save_jobs()
+    return JSONResponse({"token": token, "kind": info["kind"],
+                         "duration": info.get("duration"), "name": file.filename})
 
 
 @app.get("/api/waveform")
@@ -348,7 +382,8 @@ async def export(req: Request) -> JSONResponse:
             await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
                                     subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, texts=texts, canvas=canvas, progress=_cb)
+                                    sfx=sfx, texts=texts, canvas=canvas,
+                                    sources=job.get("sources"), progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             EXPORT[jid].update(done=True, error=str(e))
@@ -387,7 +422,7 @@ async def preview(req: Request) -> JSONResponse:
         try:
             await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, canvas=canvas, progress=_cb)
+                                    sfx=sfx, canvas=canvas, sources=job.get("sources"), progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))

@@ -266,8 +266,24 @@ def main() -> int:
               f"{p.get('width')}x{p.get('height')}")
         check(f"{fmt} 디코딩 OK", p.get("decodes", False))
 
-    # --- 15) JOBS 디스크 영속성 라운드트립 ---
-    print("\n[15] 상태 영속성 (save→load 라운드트립)")
+    # --- 15) 멀티소스 짜깁기 (영상+이미지) ---
+    print("\n[15] 멀티소스 (영상+이미지 이어붙이기)")
+    img = str(SAMPLE.parent / "img_0.png")
+    src_map = {"img": {"path": img, "kind": "image"}}
+    out_ms = str(tmp / "multisrc.mp4")
+    pipeline.export_project(str(SAMPLE),
+                            [{"src": "0", "srcIn": 0, "srcEnd": 3},
+                             {"src": "img", "srcIn": 0, "srcEnd": 3,
+                              "transition": {"type": "dissolve", "dur": 0.5}}],
+                            out_ms, subtitles=False, sources=src_map)
+    pms = probe(out_ms)
+    check("영상+이미지 디코딩 OK", pms.get("decodes", False))
+    check("길이=3+3-0.5 겹침", abs(pms.get("duration", 0) - 5.5) < 0.4,
+          f"{pms.get('duration', 0):.2f}")
+    check("비디오+오디오 유지", set(pms.get("types", [])) >= {"video", "audio"})
+
+    # --- 16) JOBS 디스크 영속성 라운드트립 ---
+    print("\n[16] 상태 영속성 (save→load 라운드트립)")
     from app import main as webmain
     saved = dict(webmain.JOBS)            # 기존 보존
     try:
