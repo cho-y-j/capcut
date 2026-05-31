@@ -199,13 +199,23 @@ async def process_mode_b(scenes: List[Scene], out_path: str, *,
     await _pause()
     _emit(progress, "slideshow", "done", "")
 
-    _emit(progress, "draft", "run", "성우+자막 합성 중")
+    _emit(progress, "draft", "run", "성우+영상 합성 중")
     audio = str(tmpdir / "voice.m4a")
     await asyncio.to_thread(_concat_audio, audio_paths, audio)
+    # 자막은 번인하지 않는다 — 편집기에서 스타일·수정 가능하도록 큐로만 넘긴다.
+    await asyncio.to_thread(slideshow.compose, silent, audio, out_path, ass=None)
     cues = subtitle.build_cues(seg_for_cues)
-    ass = str(Path(out_path).with_suffix(".ass"))
-    subtitle.write_ass(cues, ass, play_w=w, play_h=h)
-    await asyncio.to_thread(slideshow.compose, silent, audio, out_path, ass=ass)
     await _pause()
-    _emit(progress, "draft", "done", out_path)
-    return {"mode": "b", "duration": t, "output": out_path}
+    _emit(progress, "draft", "done", "편집기 준비 완료")
+    # 모드 A와 동일한 편집기로 들어가도록 클립(씬 경계)·큐·해상도를 함께 반환.
+    return {
+        "mode": "b",
+        "duration": t,
+        "w": w, "h": h, "fps": fps,
+        "path": out_path,                          # 편집 가능한 소스(자막 미번인)
+        "clips": [{"srcIn": seg["start"], "srcEnd": seg["end"]} for seg in seg_for_cues],
+        "cuts": [],
+        "script": "\n".join(sc.text for sc in scenes),
+        "segments": seg_for_cues,
+        "cues": [{"start": c.start, "end": c.end, "text": c.text} for c in cues],
+    }

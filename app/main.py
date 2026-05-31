@@ -109,10 +109,11 @@ async def modeb_upload(script: str = Form(...),
         text = lines[i] if i < len(lines) else lines[-1]
         image = paths[i] if i < len(paths) else paths[-1]
         scenes.append(pipeline.Scene(text=text, image=image))
-    out = str(config.OUTPUT_DIR / f"{job_id}_modeb.mp4")
+    # 모드 B 산출 = 편집 가능한 소스(자막 미번인). 모드 A와 같은 편집기로 들어간다.
+    out = str(config.UPLOAD_DIR / f"{job_id}_modeb_src.mp4")
     JOBS[job_id] = {"mode": "b", "scenes": scenes, "out": out}
     save_jobs()
-    return JSONResponse({"id": job_id, "scenes": len(scenes), "url": f"/out/{Path(out).name}"})
+    return JSONResponse({"id": job_id, "scenes": len(scenes)})
 
 
 async def _sse(job_id: str):
@@ -133,6 +134,8 @@ async def _sse(job_id: str):
             else:
                 res = await pipeline.process_mode_b(job["scenes"], job["out"], progress=cb)
             job["result"] = res
+            if isinstance(res, dict) and res.get("path"):
+                job["path"] = res["path"]          # 모드 B: 생성 소스를 편집 대상으로
             save_jobs()
             await q.put({"type": "result", "data": res})
         except Exception as e:  # noqa: BLE001
@@ -216,7 +219,7 @@ async def export(req: Request) -> JSONResponse:
     body = await req.json()
     jid = body["id"]
     job = JOBS.get(jid)
-    if not job or job["mode"] != "a":
+    if not job or "path" not in job:        # 처리 완료된 모드 A·B 모두 편집 가능
         return JSONResponse({"error": "unknown job"}, status_code=404)
     clips = _body_clips(body)
     subtitles = bool(body.get("subtitles", True))
@@ -255,7 +258,7 @@ async def preview(req: Request) -> JSONResponse:
     body = await req.json()
     jid = body["id"]
     job = JOBS.get(jid)
-    if not job or job["mode"] != "a":
+    if not job or "path" not in job:        # 처리 완료된 모드 A·B 모두 편집 가능
         return JSONResponse({"error": "unknown job"}, status_code=404)
     clips = _body_clips(body)
     bgm = job.get("bgm") if body.get("bgm") else None
@@ -293,7 +296,7 @@ async def capcut(req: Request) -> JSONResponse:
     from . import draft, render, subtitle
     body = await req.json()
     job = JOBS.get(body["id"])
-    if not job or job["mode"] != "a":
+    if not job or "path" not in job:        # 처리 완료된 모드 A·B 모두 편집 가능
         return JSONResponse({"error": "unknown job"}, status_code=404)
     clips = _body_clips(body)
     ranges = [(float(c["srcIn"]), float(c["srcEnd"])) for c in clips]   # 클립 순서대로

@@ -100,8 +100,8 @@
 <body>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>캡컷 에이전트</h1><span class="chip num">v0.4.0</span></header>
-  <p class="sub">AI가 자르고·자막 달고·정리까지 · 당신은 한눈에 보고 끌어다 놓기만 · 전문 작업은 캡컷으로</p>
+    <h1>캡컷 에이전트</h1><span class="chip num">v0.4.1</span></header>
+  <p class="sub">토킹 영상도 이미지→내레이션도 · AI가 자르고·자막 달고·정리까지 · 같은 편집기에서 끌어다 놓기만 · 전문 작업은 캡컷으로</p>
 
   <div class="tabs">
     <button class="tab on" data-mode="a">토킹 영상 편집</button>
@@ -262,11 +262,19 @@ function subtractRanges(base,cuts){let segs=base.slice();
 
 let cid=0;
 function initEditor(id,res,restore){
-  // AI가 무음+잔말을 제거한 결과를 "초기 클립"으로. (사람은 재배열/트림/전환만)
-  const aiCuts=(res.cuts||[]).map(c=>({start:c.start,end:c.end}));
-  const kept=subtractRanges([[0,res.duration]],aiCuts);
-  A={id,res,duration:res.duration,w:res.w||1280,h:res.h||720,
-     clips:kept.map(([s,e])=>({id:++cid,srcIn:s,srcEnd:e,transition:{type:"none",dur:0.5}})),
+  // 초기 클립: 모드 B는 씬 경계(res.clips, 기본 디졸브), 모드 A는 AI가 제거한
+  // 무음+잔말의 여집합. 이후엔 사람이 재배열/트림/분할/전환만.
+  let baseClips;
+  if(res.clips && res.clips.length){
+    const dt=res.mode==="b"?"dissolve":"none";   // 슬라이드쇼는 자동 디졸브
+    baseClips=res.clips.map((c,i)=>({id:++cid,srcIn:c.srcIn,srcEnd:c.srcEnd,
+      transition:{type:i>0?dt:"none",dur:0.5}}));
+  }else{
+    const aiCuts=(res.cuts||[]).map(c=>({start:c.start,end:c.end}));
+    baseClips=subtractRanges([[0,res.duration]],aiCuts)
+      .map(([s,e])=>({id:++cid,srcIn:s,srcEnd:e,transition:{type:"none",dur:0.5}}));
+  }
+  A={id,res,duration:res.duration,w:res.w||1280,h:res.h||720,clips:baseClips,
      cues:res.cues.map(c=>({...c})),style:{...DEF_STYLE},
      bgm:{enabled:false,volume:0.16,fadeIn:0,fadeOut:0},
      pxPerSec:Math.max(8,Math.min(80,820/(res.duration||10))),playIdx:0};
@@ -277,6 +285,8 @@ function initEditor(id,res,restore){
     if(restore.cu)A.cues.forEach((c,i)=>{if(restore.cu[i]!=null)c.text=restore.cu[i];});
   }
   undoStack=[];redoStack=[];
+  $(".tabs").classList.add("hide");$("#steps").classList.add("hide");
+  $("#paneB").classList.add("hide");$("#paneA").classList.remove("hide");
   $("#dropCard").classList.add("hide");$("#editorA").classList.remove("hide");
   const v=$("#srcA");v.src=`/api/media?id=${id}`;
   $("#scriptA").textContent=res.script||"(대본 없음)";
@@ -521,8 +531,7 @@ $("#genB").onclick=async()=>{const fd=new FormData();fd.append("script",$("#scri
   imagesB.forEach(f=>fd.append("images",f));$("#genB").disabled=true;$("#genB").textContent="생성 중…";renderSteps("b");
   const r=await fetch("/api/modeb/upload",{method:"POST",body:fd});const j=await r.json();
   processSSE(j.id,res=>{$("#genB").disabled=false;$("#genB").textContent="영상 생성";
-    const url="/out/"+res.output.split("/").pop();const v=$("#vidB");v.src=url+"?t="+Date.now();v.classList.remove("hide");
-    const a=$("#dlB");a.href=url;a.classList.remove("hide");});};
+    initEditor(j.id,res);});};   // 모드 A와 같은 편집기로 진입
 
 window.addEventListener("resize",()=>{if(A)redraw();});
 loadVoices();tryRestore();
