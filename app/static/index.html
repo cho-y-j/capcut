@@ -160,7 +160,7 @@
 <body>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
-    <h1>ONCUT</h1><span class="chip num">v0.11.0</span><span class="chip">AI 영상 편집</span></header>
+    <h1>ONCUT</h1><span class="chip num">v0.11.1</span><span class="chip">AI 영상 편집</span></header>
   <p class="sub">영상 던지고 체크만 → AI가 컷·자막·정리 자동 · 그다음 보면서 오른쪽 버튼으로 톡톡 편집 · 全 OS</p>
 
   <!-- 시작 화면 -->
@@ -451,6 +451,8 @@ function onTime(){const v=$("#srcA");if(!A.clips.length)return;let c=A.clips[A.p
     if(A.playIdx<A.clips.length-1){A.playIdx++;v.currentTime=A.clips[A.playIdx].srcIn+0.001;}else v.pause();}
   const out=curOut();$("#ph").style.left=px(out)+"px";
   $("#tc").textContent=fmt(out)+" / "+fmt(layout().total);
+  const sc=$("#tlScroll");if(sc){const x=px(out);   // 긴 영상: 플레이헤드 따라 자동 스크롤
+    if(x<sc.scrollLeft+20||x>sc.scrollLeft+sc.clientWidth-60)sc.scrollLeft=Math.max(0,x-sc.clientWidth*0.4);}
   overlaySub(v.currentTime);
   if(!A._dragging)renderStage();          // 시간에 따라 텍스트·버튼 나타났다 사라지게
   // 효과음: 재생 중 해당 시각을 지날 때 1회 미리듣기
@@ -468,7 +470,9 @@ function overlaySub(t){const o=$("#ovA"),s=A.style;applySubStyle();
   const inner=c.text.replace(/\n/g,"<br>");
   const boxcss=s.box?`background:${s.outlineColor};padding:.08em .45em;border-radius:5px;box-decoration-break:clone;-webkit-box-decoration-break:clone;`:"";
   o.innerHTML=`<span class="ovtxt" style="${boxcss}">${inner}</span>`;
-  const sp=o.querySelector(".ovtxt");if(sp)sp.onpointerdown=subDrag;}
+  const sp=o.querySelector(".ovtxt");if(sp){sp.onpointerdown=subDrag;
+    sp.ondblclick=ev=>{ev.stopPropagation();const ci=A.cues.findIndex(x=>t>=x.start&&t<x.end);
+      if(ci>=0){select("cue",ci);const ta=document.getElementById("fU_text");if(ta){ta.focus();ta.select();}}};}}
 function applySubStyle(){const s=A.style,o=$("#ovA"),vh=stageBox().h;
   o.style.fontFamily=`"${s.font}", sans-serif`;o.style.fontSize=Math.max(11,s.fontSize*vh/(A.h||720))+"px";
   o.style.color=s.color;o.style.fontWeight=s.bold?"700":"400";
@@ -489,7 +493,7 @@ function activeAt(o,t){return (o.start==null||t>=o.start-0.001)&&(o.end==null||t
 function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
   layer.querySelectorAll(".el").forEach(e=>e.remove());
   A.texts.forEach((tx,i)=>{const sel=A.sel&&A.sel.type==="text"&&A.sel.i===i;
-    if(!sel&&!activeAt(tx,t))return;            // 시간 지나면 사라짐(선택 중엔 편집 위해 표시)
+    if(!activeAt(tx,t)&&!(sel&&!A.playing))return;  // 재생 중엔 시간 지나면 사라짐(멈춤+선택시만 편집용 표시)
     const el=mkEl("text",i,tx.x,tx.y);
     const d=document.createElement("div");d.className="txt";d.textContent=tx.text||"텍스트";
     if(!activeAt(tx,t))el.style.opacity=0.4;     // 선택했지만 현재 구간 밖이면 흐리게
@@ -500,7 +504,7 @@ function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
     el.appendChild(d);el.ondblclick=()=>{select("text",i);const ta=$("#fldText");if(ta){ta.focus();ta.select();}};
     layer.appendChild(el);});
   A.overlays.forEach((o,i)=>{const sel=A.sel&&A.sel.type==="overlay"&&A.sel.i===i;
-    if(!sel&&!activeAt(o,t))return;               // 로고는 start=null이면 항상 표시
+    if(!activeAt(o,t)&&!(sel&&!A.playing))return;  // 재생 중엔 시간 지나면 사라짐
     const el=mkEl("overlay",i,o.x,o.y);el.style.width=(o.scale*box.w)+"px";
     el.style.opacity=activeAt(o,t)?o.opacity:0.4;
     const img=document.createElement("img");img.src=o.url;el.appendChild(img);layer.appendChild(el);});
@@ -568,7 +572,7 @@ function cueBars(cu,i){const {starts}=layout();const segs=[];
 function laneBars(sel,cls,items){const ln=$(sel);ln.innerHTML="";
   items.forEach(it=>{const el=document.createElement("div");el.className="bar2 "+cls;
     el.style.left=px(it.left)+"px";el.style.width=Math.max(8,px(it.w))+"px";el.textContent=(it.text||"").replace(/\n/g," ");
-    el.onclick=()=>{seekOut(it.left);if(cls==="sub")select("cue",it.i);onTime();};ln.appendChild(el);});}
+    el.onclick=()=>{seekOut(it.left);if(cls==="sub"){select("cue",it.i);const ta=document.getElementById("fU_text");if(ta)ta.focus();}onTime();};ln.appendChild(el);});}
 function drawElLane(sel,cls,arr){const ln=$(sel);ln.innerHTML="";const total=layout().total;
   arr.forEach((o,i)=>{const s=o.start!=null?o.start:0,e=o.end!=null?o.end:total;
     const elSel=A.sel&&A.sel.type===(cls==="text"?"text":"overlay")&&A.sel.i===i;
