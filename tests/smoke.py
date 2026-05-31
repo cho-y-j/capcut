@@ -255,8 +255,19 @@ def main() -> int:
     at = Path(tass).read_text(encoding="utf-8")
     check("텍스트 \\pos+팝애니메이션", "\\pos(640," in at and "\\t(0,250" in at and "펑 텍스트" in at)
 
-    # --- 14) JOBS 디스크 영속성 라운드트립 ---
-    print("\n[14] 상태 영속성 (save→load 라운드트립)")
+    # --- 14) 형식(쇼츠/정사각) 캔버스 ---
+    print("\n[14] 형식 캔버스 (쇼츠 9:16 / 정사각 1:1)")
+    for fmt, cv in [("shorts", (1080, 1920)), ("square", (1080, 1080))]:
+        o = str(tmp / (fmt + ".mp4"))
+        pipeline.export_project(str(SAMPLE), [{"srcIn": 0, "srcEnd": 4}], o,
+                                subtitles=False, canvas=cv)
+        p = probe(o)
+        check(f"{fmt} {cv[0]}x{cv[1]}", p.get("width") == cv[0] and p.get("height") == cv[1],
+              f"{p.get('width')}x{p.get('height')}")
+        check(f"{fmt} 디코딩 OK", p.get("decodes", False))
+
+    # --- 15) JOBS 디스크 영속성 라운드트립 ---
+    print("\n[15] 상태 영속성 (save→load 라운드트립)")
     from app import main as webmain
     saved = dict(webmain.JOBS)            # 기존 보존
     try:

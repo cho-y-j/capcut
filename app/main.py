@@ -91,6 +91,25 @@ async def upload(file: UploadFile = File(...)) -> JSONResponse:
     return JSONResponse({"id": job_id, "filename": file.filename})
 
 
+@app.post("/api/start")
+async def start(req: Request) -> JSONResponse:
+    """AI 시작 화면 옵션 저장 → 이후 /api/process 가 이 옵션으로 처리."""
+    body = await req.json()
+    job = JOBS.get(body.get("id"))
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    job["opts"] = body.get("opts") or {}
+    save_jobs()
+    return JSONResponse({"ok": True})
+
+
+_FORMATS = {"shorts": (1080, 1920), "square": (1080, 1080)}   # 그 외(wide)=원본 유지
+
+
+def _canvas(fmt):
+    return _FORMATS.get(fmt)
+
+
 @app.post("/api/modeb/upload")
 async def modeb_upload(script: str = Form(...),
                        images: List[UploadFile] = File(...)) -> JSONResponse:
@@ -131,7 +150,7 @@ async def _sse(job_id: str):
     async def run():
         try:
             if job["mode"] == "a":
-                res = await pipeline.process_mode_a(job["path"], progress=cb)
+                res = await pipeline.process_mode_a(job["path"], opts=job.get("opts"), progress=cb)
             else:
                 res = await pipeline.process_mode_b(job["scenes"], job["out"], progress=cb)
             job["result"] = res
@@ -317,6 +336,7 @@ async def export(req: Request) -> JSONResponse:
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
     texts = body.get("texts") or []
+    canvas = _canvas(body.get("format"))
     out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
     EXPORT[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -328,7 +348,7 @@ async def export(req: Request) -> JSONResponse:
             await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
                                     subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, texts=texts, progress=_cb)
+                                    sfx=sfx, texts=texts, canvas=canvas, progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             EXPORT[jid].update(done=True, error=str(e))
@@ -356,6 +376,7 @@ async def preview(req: Request) -> JSONResponse:
     bgm_opts = body.get("bgmOpts") or {}
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
+    canvas = _canvas(body.get("format"))
     out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
     PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -366,7 +387,7 @@ async def preview(req: Request) -> JSONResponse:
         try:
             await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, progress=_cb)
+                                    sfx=sfx, canvas=canvas, progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))

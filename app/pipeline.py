@@ -30,7 +30,11 @@ async def _pause():
 
 # ---------------- 모드 A: 토킹 영상 편집 ----------------
 async def process_mode_a(input_path: str, *, model: str | None = None,
+                         opts: dict | None = None,
                          progress: Progress = None) -> dict:
+    opts = opts or {}
+    rm_sil = opts.get("removeSilence", True)
+    rm_fil = opts.get("removeFiller", True)
     _emit(progress, "silence", "run", "무음 감지 중")
     segs, duration = await asyncio.to_thread(keep_segments, input_path)
     silences = await asyncio.to_thread(detect_silences, input_path)
@@ -48,8 +52,8 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
 
     _emit(progress, "filler", "run", "무음·잔말·반복 탐지 중")
     # 무음 컷(의도적 쉼은 보존) + 잔말/반복 컷을 합쳐 자동정리 후보로.
-    sil_cuts = classify_silence_cuts(silences, tr["segments"], duration)
-    fil_cuts = await asyncio.to_thread(filler.suggest_cuts, tr["segments"])
+    sil_cuts = classify_silence_cuts(silences, tr["segments"], duration) if rm_sil else []
+    fil_cuts = (await asyncio.to_thread(filler.suggest_cuts, tr["segments"])) if rm_fil else []
     cuts = filler.merge_cuts(sil_cuts + fil_cuts)
     await _pause()
     _emit(progress, "filler", "done",
@@ -88,13 +92,14 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    bgm: str | None = None, bgm_opts: dict | None = None,
                    overlays: Sequence[dict] | None = None,
                    sfx: Sequence[dict] | None = None,
-                   texts: Sequence[dict] | None = None,
+                   texts: Sequence[dict] | None = None, canvas: tuple | None = None,
                    model: str | None = None, normalize: bool = True,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 → MP4 (+ 자막 + 텍스트박스 + 배경음악 + 오버레이 + 효과음).
 
     cues 시간은 **원본 타임라인** 기준 → 클립 레이아웃(재정렬·트랜지션)으로 remap.
     texts(자유 텍스트박스)·overlays(로고)·sfx(효과음)는 출력 타임라인 기준.
+    canvas=(w,h) 주면 그 비율로 cover-crop(쇼츠 9:16·정사각 1:1 등).
     """
     clips = _as_clips(clips)
     if not clips:
@@ -115,7 +120,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
     def _render(dst, prog):
         return render.render_timeline(input_path, clips, dst, normalize=normalize,
                                       bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
-                                      bgm_fade_out=fout, progress=prog)
+                                      bgm_fade_out=fout, canvas=canvas, progress=prog)
 
     if not need_burn:
         _render(base, _scale(0.0, span))
@@ -131,7 +136,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                 tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
                 cue_objs = subtitle.build_cues(tr["segments"])
             cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
-        w, h, _ = probe_video(input_path)
+        w, h = canvas if canvas else probe_video(input_path)[:2]
         ass = str(Path(out_path).with_suffix(".ass"))
         subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h, texts=texts, total=total,
                            **subtitle.style_to_kwargs(style))
@@ -159,7 +164,7 @@ def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
 
 def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = None,
                    bgm_opts: dict | None = None, overlays: Sequence[dict] | None = None,
-                   sfx: Sequence[dict] | None = None,
+                   sfx: Sequence[dict] | None = None, canvas: tuple | None = None,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 저화질·고속 프록시 → 컷·트랜지션·오디오·오버레이·효과음 미리보기.
 
@@ -175,7 +180,7 @@ def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = N
                            bgm_volume=float(bo.get("volume", 0.16)),
                            bgm_fade_in=float(bo.get("fadeIn", 0.0)),
                            bgm_fade_out=float(bo.get("fadeOut", 0.0)),
-                           scale_h=480, preset="ultrafast", crf="30",
+                           canvas=canvas, scale_h=480, preset="ultrafast", crf="30",
                            progress=(lambda p: progress(p * (0.8 if has_ov else 1.0))) if progress else None)
     if has_ov:
         render.composite(base, out_path, overlays=overlays, sfx=sfx,

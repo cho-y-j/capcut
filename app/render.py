@@ -94,6 +94,7 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
                     *, crossfade: float | None = None, normalize: bool = False,
                     bgm: str | None = None, bgm_volume: float = 0.16,
                     bgm_fade_in: float = 0.0, bgm_fade_out: float = 0.0,
+                    canvas: tuple | None = None,
                     scale_h: int | None = None, preset: str | None = None,
                     crf: str | None = None, progress: ProgressCB = None) -> str:
     """클립을 순서대로(+경계 트랜지션) 이어붙여 MP4 생성. output_path 반환.
@@ -156,10 +157,16 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
                      f"asetpts=PTS-STARTPTS{_afade(c['dur'])}[a{i}]")
         inter = "".join(f"[v{i}][a{i}]" for i in range(len(norm)))
         P.append(f"{inter}concat=n={len(norm)}:v=1:a=1[vc][ac]")
-        vmap = "[vc]"
+        cur = "vc"
+        if canvas:
+            tw, th = int(canvas[0]), int(canvas[1])
+            P.append(f"[{cur}]scale={tw}:{th}:force_original_aspect_ratio=increase,"
+                     f"crop={tw}:{th},setsar=1[vcv]")
+            cur = "vcv"
         if scale_h:
-            P.append(f"[vc]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
-            vmap = "[vsc]"
+            P.append(f"[{cur}]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
+            cur = "vsc"
+        vmap = f"[{cur}]"
         P.append(f"[ac]{lnorm}[spk]" if normalize else "[ac]anull[spk]")
         inputs = ["-i", input_path]
         if bgm:
@@ -199,10 +206,16 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
             Pv.append(f"[{cv}][v{i}]concat=n=2:v=1:a=0[{nv}]")
             acc += norm[i]["dur"]
         cv = nv
-    vmap = f"[{cv}]"
+    cur = cv
+    if canvas:
+        tw, th = int(canvas[0]), int(canvas[1])
+        Pv.append(f"[{cur}]scale={tw}:{th}:force_original_aspect_ratio=increase,"
+                  f"crop={tw}:{th},setsar=1[vcv]")
+        cur = "vcv"
     if scale_h:
-        Pv.append(f"[{cv}]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
-        vmap = "[vsc]"
+        Pv.append(f"[{cur}]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
+        cur = "vsc"
+    vmap = f"[{cur}]"
     _enc(["-i", input_path], ";".join(Pv), ["-map", vmap, "-an"], tmp_v,
          total_sec=total, cb=(lambda p: progress(p * 0.75)) if progress else None,
          audio=False)
