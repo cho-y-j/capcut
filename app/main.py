@@ -316,6 +316,7 @@ async def export(req: Request) -> JSONResponse:
     bgm_opts = body.get("bgmOpts") or {}
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
+    texts = body.get("texts") or []
     out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
     EXPORT[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -327,7 +328,7 @@ async def export(req: Request) -> JSONResponse:
             await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
                                     subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, progress=_cb)
+                                    sfx=sfx, texts=texts, progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             EXPORT[jid].update(done=True, error=str(e))

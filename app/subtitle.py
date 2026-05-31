@@ -168,12 +168,40 @@ def style_to_kwargs(style: dict | None) -> dict:
     return out
 
 
+def _text_dialogue(t: dict, play_w: int, play_h: int, total: float) -> str:
+    """자유 텍스트박스 1개 → ASS Dialogue (위치·글꼴·색·크기 애니메이션)."""
+    s = float(t["start"]) if t.get("start") is not None else 0.0
+    e = float(t["end"]) if t.get("end") is not None else (total or s + 3)
+    if e <= s:
+        e = s + 0.1
+    x, y = int(float(t.get("x", 0.5)) * play_w), int(float(t.get("y", 0.5)) * play_h)
+    fs = int(t.get("fontSize", 60))
+    font = t.get("font", "Noto Sans CJK KR")
+    prim, outl = _ass_color(t.get("color", "FFFFFF")), _ass_color(t.get("outlineColor", "000000"))
+    ow = t.get("outlineW", 3)
+    b = 1 if t.get("bold", True) else 0
+    dur = int((e - s) * 1000)
+    anim = t.get("anim", "none")
+    a = ""
+    if anim == "pop":
+        a = "\\fscx70\\fscy70\\t(0,250,\\fscx106\\fscy106)\\t(250,420,\\fscx100\\fscy100)"
+    elif anim == "grow":
+        a = f"\\fscx100\\fscy100\\t(0,{dur},\\fscx145\\fscy145)"
+    elif anim == "shrink":
+        a = f"\\fscx150\\fscy150\\t(0,{dur},\\fscx100\\fscy100)"
+    txt = (t.get("text", "") or "").replace("\n", "\\N")
+    ov = (f"{{\\an5\\pos({x},{y})\\fn{font}\\fs{fs}\\c{prim}\\3c{outl}"
+          f"\\bord{ow}\\b{b}\\fad(150,150){a}}}")
+    return f"Dialogue: 0,{_ts_ass(s)},{_ts_ass(e)},Default,,0,0,0,,{ov}{txt}"
+
+
 def write_ass(cues: List[Cue], path: str, *, play_w: int = 1920, play_h: int = 1080,
               font: str = "Noto Sans CJK KR", font_size: int = 56,
               color: str = "FFFFFF", outline_w: float = 3, outline_color: str = "000000",
               align: str = "bottom", bold: bool = True, box: bool = False,
               margin_v_ratio: float = 0.08, shadow: float = 1.0,
-              pos: tuple | None = None) -> str:
+              pos: tuple | None = None, texts: List[dict] | None = None,
+              total: float = 0.0) -> str:
     """번인용 ASS. 글꼴·색·외곽선·그림자·위치(상/중/하 또는 자유좌표)·박스·굵기 지원.
 
     pos=(x,y) 정규화 좌표가 주어지면 \\an5\\pos로 자유 배치(드래그 위치). 없으면
@@ -207,6 +235,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for c in cues:
         txt = c.text.replace("\n", "\\N")
         rows.append(f"Dialogue: 0,{_ts_ass(c.start)},{_ts_ass(c.end)},Default,,0,0,0,,{pre}{txt}")
+    for t in (texts or []):
+        if (t.get("text", "") or "").strip():
+            rows.append(_text_dialogue(t, play_w, play_h, total))
     with open(path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(rows) + "\n")
     return path

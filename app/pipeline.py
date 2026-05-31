@@ -88,23 +88,25 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    bgm: str | None = None, bgm_opts: dict | None = None,
                    overlays: Sequence[dict] | None = None,
                    sfx: Sequence[dict] | None = None,
+                   texts: Sequence[dict] | None = None,
                    model: str | None = None, normalize: bool = True,
                    progress: Optional[Callable[[float], None]] = None) -> str:
-    """클립 타임라인 → MP4 (+ 자막 + 배경음악 + 이미지 오버레이 + 효과음).
+    """클립 타임라인 → MP4 (+ 자막 + 텍스트박스 + 배경음악 + 오버레이 + 효과음).
 
     cues 시간은 **원본 타임라인** 기준 → 클립 레이아웃(재정렬·트랜지션)으로 remap.
-    overlays(로고/버튼)·sfx(효과음)는 컷·자막을 마친 출력 위에 마지막에 합성한다.
+    texts(자유 텍스트박스)·overlays(로고)·sfx(효과음)는 출력 타임라인 기준.
     """
     clips = _as_clips(clips)
     if not clips:
         raise ValueError("클립(보존 구간)이 비었습니다.")
+    texts = list(texts or [])
     bo = bgm_opts or {}
     vol = float(bo.get("volume", 0.16))
     fin, fout = float(bo.get("fadeIn", 0.0)), float(bo.get("fadeOut", 0.0))
     layout, total = render.clip_layout(clips)
     has_ov = bool(overlays) or bool(sfx)
+    need_burn = subtitles or bool(texts)
     base = out_path if not has_ov else str(Path(out_path).with_suffix(".noov.mp4"))
-    # 진행률: 오버레이 있으면 영상/자막 0~0.85, 오버레이 0.85~1.0
     span = 0.85 if has_ov else 1.0
 
     def _scale(lo, hi):
@@ -115,21 +117,23 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                                       bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
                                       bgm_fade_out=fout, progress=prog)
 
-    if not subtitles:
+    if not need_burn:
         _render(base, _scale(0.0, span))
     else:
         tmp = str(Path(out_path).with_suffix(".tmp.mp4"))
         _render(tmp, _scale(0.0, span * 0.6))
-        if cues is not None:
-            cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
-                        for c in cues if c.get("text", "").strip()]
-        else:
-            tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
-            cue_objs = subtitle.build_cues(tr["segments"])
-        cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
+        cue_objs: list = []
+        if subtitles:
+            if cues is not None:
+                cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
+                            for c in cues if c.get("text", "").strip()]
+            else:
+                tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
+                cue_objs = subtitle.build_cues(tr["segments"])
+            cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
         w, h, _ = probe_video(input_path)
         ass = str(Path(out_path).with_suffix(".ass"))
-        subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h,
+        subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h, texts=texts, total=total,
                            **subtitle.style_to_kwargs(style))
         render.burn_subtitles(tmp, ass, base, total_sec=total,
                               progress=_scale(span * 0.6, span))

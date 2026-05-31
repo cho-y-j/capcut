@@ -239,8 +239,24 @@ def main() -> int:
                             subtitles=False, sfx=[{"path": click, "at": 0.5, "volume": 1.0}])
     check("SFX 단독 합성 OK", probe(out_s2).get("decodes", False))
 
-    # --- 13) JOBS 디스크 영속성 라운드트립 ---
-    print("\n[13] 상태 영속성 (save→load 라운드트립)")
+    # --- 13) 텍스트박스 (위치·애니메이션) ---
+    print("\n[13] 텍스트박스 번인 + 애니메이션")
+    out_tx = str(tmp / "textbox.mp4")
+    texts = [{"text": "펑 텍스트", "x": 0.5, "y": 0.4, "fontSize": 70, "color": "#ffee00",
+              "outlineColor": "#000000", "outlineW": 4, "bold": True, "font": "Black Han Sans",
+              "start": 0.5, "end": 3.0, "anim": "pop"}]
+    pipeline.export_project(str(SAMPLE), [{"srcIn": 0, "srcEnd": 5}], out_tx,
+                            subtitles=False, texts=texts)
+    ptx = probe(out_tx)
+    check("텍스트박스 디코딩 OK", ptx.get("decodes", False))
+    # ASS에 위치·애니메이션 반영
+    tass = str(tmp / "tb.ass")
+    subtitle.write_ass([], tass, play_w=1280, play_h=720, texts=texts, total=5.0)
+    at = Path(tass).read_text(encoding="utf-8")
+    check("텍스트 \\pos+팝애니메이션", "\\pos(640," in at and "\\t(0,250" in at and "펑 텍스트" in at)
+
+    # --- 14) JOBS 디스크 영속성 라운드트립 ---
+    print("\n[14] 상태 영속성 (save→load 라운드트립)")
     from app import main as webmain
     saved = dict(webmain.JOBS)            # 기존 보존
     try:
