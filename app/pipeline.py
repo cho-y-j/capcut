@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from . import asr, config, filler, render, slideshow, subtitle, tts
-from .silence import Segment, keep_segments
+from .silence import Segment, keep_segments, probe_video
 
 Progress = Optional[Callable[[str, str, str], None]]
 MIN_STEP = 0.5   # 단계당 최소 지연(애니메이션 가시화)
@@ -32,6 +32,10 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
                          progress: Progress = None) -> dict:
     _emit(progress, "silence", "run", "무음 감지 중")
     segs, duration = await asyncio.to_thread(keep_segments, input_path)
+    try:
+        vw, vh, vfps = await asyncio.to_thread(probe_video, input_path)
+    except Exception:  # noqa: BLE001
+        vw, vh, vfps = 1280, 720, 30.0
     await _pause()
     _emit(progress, "silence", "done", f"{len(segs)}개 보존구간")
 
@@ -52,6 +56,7 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
     return {
         "mode": "a",
         "duration": duration,
+        "w": vw, "h": vh, "fps": vfps,
         "keep": [{"start": s.start, "end": s.end} for s in segs],
         "cuts": cuts,
         "script": tr["script"],
@@ -60,57 +65,91 @@ async def process_mode_a(input_path: str, *, model: str | None = None,
     }
 
 
-def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
-                  out_path: str, *, subtitles: bool = True,
-                  cues: Sequence[dict] | None = None, bgm: str | None = None,
-                  model: str | None = None, normalize: bool = True,
-                  progress: Optional[Callable[[float], None]] = None) -> str:
-    """사용자 확정 보존구간으로 점프컷 추출 (+ 자막 번인 + 배경음악).
+def _as_clips(items) -> List[dict]:
+    """[(s,e), ...] 또는 [{srcIn,srcEnd,transition?}, ...] → 클립 dict 리스트."""
+    clips: List[dict] = []
+    for it in items or []:
+        if isinstance(it, dict):
+            clips.append(it)
+        else:
+            a, b = it
+            clips.append({"srcIn": float(a), "srcEnd": float(b)})
+    return clips
 
-    cues 가 주어지면(사용자가 수정한 자막) 그것을 쓰고, 없으면 ASR 캐시에서 재생성.
-    cues 의 시간은 **원본 타임라인** 기준 → 점프컷 후 타임라인으로 remap.
-    progress(0~1): 점프컷 0~0.6, 자막번인 0.6~1.0 가중.
+
+def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = True,
+                   cues: Sequence[dict] | None = None, style: dict | None = None,
+                   bgm: str | None = None, bgm_opts: dict | None = None,
+                   model: str | None = None, normalize: bool = True,
+                   progress: Optional[Callable[[float], None]] = None) -> str:
+    """클립 타임라인(순서·트랜지션) → MP4 추출 (+ 스타일 자막 번인 + 배경음악).
+
+    cues 시간은 **원본 타임라인** 기준 → 클립 레이아웃(재정렬·트랜지션)으로 remap.
+    progress(0~1): 점프컷/트랜지션 0~0.6, 자막번인 0.6~1.0 가중.
     """
-    segs = [Segment(float(a), float(b)) for a, b in kept_ranges if b > a]
-    if not segs:
-        raise ValueError("보존 구간이 비었습니다.")
-    total = render.total_kept(segs)
+    clips = _as_clips(clips)
+    if not clips:
+        raise ValueError("클립(보존 구간)이 비었습니다.")
+    bo = bgm_opts or {}
+    vol = float(bo.get("volume", 0.16))
+    fin, fout = float(bo.get("fadeIn", 0.0)), float(bo.get("fadeOut", 0.0))
+    layout, total = render.clip_layout(clips)
+
+    def _render(dst, prog):
+        return render.render_timeline(input_path, clips, dst, normalize=normalize,
+                                      bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
+                                      bgm_fade_out=fout, progress=prog)
 
     if not subtitles:
-        return render.render_jumpcut(input_path, segs, out_path, normalize=normalize,
-                                     bgm=bgm, progress=progress)
+        return _render(out_path, progress)
 
     tmp = str(Path(out_path).with_suffix(".tmp.mp4"))
-    render.render_jumpcut(input_path, segs, tmp, normalize=normalize, bgm=bgm,
-                          progress=(lambda p: progress(p * 0.6)) if progress else None)
+    _render(tmp, (lambda p: progress(p * 0.6)) if progress else None)
     if cues is not None:
         cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
                     for c in cues if c.get("text", "").strip()]
     else:
         tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
         cue_objs = subtitle.build_cues(tr["segments"])
-    cue_objs = subtitle.remap_cues(cue_objs, segs)
+    cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
+    w, h, _ = probe_video(input_path)
     ass = str(Path(out_path).with_suffix(".ass"))
-    subtitle.write_ass(cue_objs, ass)
+    subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h,
+                       **subtitle.style_to_kwargs(style))
     render.burn_subtitles(tmp, ass, out_path, total_sec=total,
                           progress=(lambda p: progress(0.6 + p * 0.4)) if progress else None)
     Path(tmp).unlink(missing_ok=True)
     return out_path
 
 
-def preview_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
-                   out_path: str, *, bgm: str | None = None,
-                   progress: Optional[Callable[[float], None]] = None) -> str:
-    """확정 보존구간을 저화질·고속 프록시로 렌더 → 실제 컷/오디오 페이드 미리보기.
+def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
+                  out_path: str, *, subtitles: bool = True,
+                  cues: Sequence[dict] | None = None, bgm: str | None = None,
+                  model: str | None = None, normalize: bool = True,
+                  progress: Optional[Callable[[float], None]] = None) -> str:
+    """하위호환 래퍼 — 연속 보존구간(트랜지션 없음)을 export_project로 위임."""
+    return export_project(input_path, kept_ranges, out_path, subtitles=subtitles,
+                          cues=cues, style=None, bgm=bgm, model=model,
+                          normalize=normalize, progress=progress)
 
-    자막 번인은 생략(속도). 480p·ultrafast·crf30. 진짜 컷 결과를 브라우저에서 재생.
+
+def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = None,
+                   bgm_opts: dict | None = None,
+                   progress: Optional[Callable[[float], None]] = None) -> str:
+    """클립 타임라인을 저화질·고속 프록시로 렌더 → 실제 컷·트랜지션·오디오 미리보기.
+
+    자막 번인은 생략(속도). 480p·ultrafast·crf30.
     """
-    segs = [Segment(float(a), float(b)) for a, b in kept_ranges if b > a]
-    if not segs:
-        raise ValueError("보존 구간이 비었습니다.")
-    return render.render_jumpcut(input_path, segs, out_path, normalize=True, bgm=bgm,
-                                 scale_h=480, preset="ultrafast", crf="30",
-                                 progress=progress)
+    clips = _as_clips(clips)
+    if not clips:
+        raise ValueError("클립(보존 구간)이 비었습니다.")
+    bo = bgm_opts or {}
+    return render.render_timeline(input_path, clips, out_path, normalize=True, bgm=bgm,
+                                  bgm_volume=float(bo.get("volume", 0.16)),
+                                  bgm_fade_in=float(bo.get("fadeIn", 0.0)),
+                                  bgm_fade_out=float(bo.get("fadeOut", 0.0)),
+                                  scale_h=480, preset="ultrafast", crf="30",
+                                  progress=progress)
 
 
 # ---------------- 모드 B: 이미지 → 내레이션 영상 ----------------

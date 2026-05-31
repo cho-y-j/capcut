@@ -11,7 +11,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import asr, config, pipeline, waveform
+from . import asr, config, pipeline, thumbnails, waveform
 
 config.ensure_dirs()
 app = FastAPI(title="캡컷 에이전트")
@@ -24,6 +24,14 @@ EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
 PREVIEW: Dict[str, dict] = {}     # id -> {pct, done, url, error}
 
 JOBS_FILE = config.UPLOAD_DIR / "_jobs.json"
+
+
+def _body_clips(body: dict) -> list:
+    """요청 바디 → 클립 리스트. clips(순서·트랜지션) 우선, 없으면 keep 폴백."""
+    clips = body.get("clips")
+    if clips:
+        return clips
+    return [{"srcIn": float(a), "srcEnd": float(b)} for a, b in body.get("keep", [])]
 
 
 def _serialize_job(job: dict) -> dict:
@@ -164,6 +172,20 @@ async def get_waveform(id: str) -> JSONResponse:
     return JSONResponse({"peaks": pk})
 
 
+@app.get("/api/thumbs")
+async def get_thumbs(id: str, n: int = 120):
+    """타임라인 썸네일 스프라이트(JPEG) 직접 서빙 — 비디오 레인 배경용."""
+    job = JOBS.get(id)
+    if not job or "path" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    import asyncio
+    try:
+        path = await asyncio.to_thread(thumbnails.sprite, job["path"], n)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return FileResponse(path, media_type="image/jpeg")
+
+
 @app.get("/api/job")
 async def get_job(id: str) -> JSONResponse:
     """처리 결과 복원(새로고침 후)."""
@@ -196,10 +218,12 @@ async def export(req: Request) -> JSONResponse:
     job = JOBS.get(jid)
     if not job or job["mode"] != "a":
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    ranges = [(float(a), float(b)) for a, b in body["keep"]]
+    clips = _body_clips(body)
     subtitles = bool(body.get("subtitles", True))
     cues = body.get("cues")
+    style = body.get("style")
     bgm = job.get("bgm") if body.get("bgm") else None
+    bgm_opts = body.get("bgmOpts") or {}
     out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
     EXPORT[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -208,8 +232,9 @@ async def export(req: Request) -> JSONResponse:
 
     async def _run():
         try:
-            await asyncio.to_thread(pipeline.export_mode_a, job["path"], ranges, out,
-                                    subtitles=subtitles, cues=cues, bgm=bgm, progress=_cb)
+            await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
+                                    subtitles=subtitles, cues=cues, style=style,
+                                    bgm=bgm, bgm_opts=bgm_opts, progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             EXPORT[jid].update(done=True, error=str(e))
@@ -232,8 +257,9 @@ async def preview(req: Request) -> JSONResponse:
     job = JOBS.get(jid)
     if not job or job["mode"] != "a":
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    ranges = [(float(a), float(b)) for a, b in body["keep"]]
+    clips = _body_clips(body)
     bgm = job.get("bgm") if body.get("bgm") else None
+    bgm_opts = body.get("bgmOpts") or {}
     out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
     PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -242,8 +268,8 @@ async def preview(req: Request) -> JSONResponse:
 
     async def _run():
         try:
-            await asyncio.to_thread(pipeline.preview_mode_a, job["path"], ranges, out,
-                                    bgm=bgm, progress=_cb)
+            await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
+                                    bgm=bgm, bgm_opts=bgm_opts, progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))
@@ -259,18 +285,24 @@ async def preview_status(id: str) -> JSONResponse:
 
 @app.post("/api/capcut")
 async def capcut(req: Request) -> JSONResponse:
-    """편집 결과를 캡컷 드래프트로 출력 (Win/Mac 핸드오프)."""
-    from . import draft, subtitle
-    from .silence import Segment
+    """편집 결과를 캡컷 드래프트로 출력 (Win/Mac 핸드오프).
+
+    v1: 클립 순서는 반영, 트랜지션은 캡컷에서 추가(드래프트 매핑 한계). 자막은
+    하드컷 누적 레이아웃으로 remap(드래프트 세그먼트 배치와 일치).
+    """
+    from . import draft, render, subtitle
     body = await req.json()
     job = JOBS.get(body["id"])
     if not job or job["mode"] != "a":
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    ranges = [(float(a), float(b)) for a, b in body["keep"]]
+    clips = _body_clips(body)
+    ranges = [(float(c["srcIn"]), float(c["srcEnd"])) for c in clips]   # 클립 순서대로
+    hc = [{"srcIn": a, "srcEnd": b} for a, b in ranges]                 # 트랜지션 무시
+    layout, _ = render.clip_layout(hc)
     cues = body.get("cues") or []
     cue_objs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
                 for c in cues if c.get("text", "").strip()]
-    cue_objs = subtitle.remap_cues(cue_objs, [Segment(a, b) for a, b in ranges])
+    cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
     import asyncio
     name = f"{body['id']}_capcut"
     ddir = await asyncio.to_thread(draft.build_capcut, job["path"], ranges, name,

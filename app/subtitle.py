@@ -100,6 +100,24 @@ def remap_cues(cues: List[Cue], kept_segments) -> List[Cue]:
     return out
 
 
+def remap_cues_clips(cues: List[Cue], layout: List[dict]) -> List[Cue]:
+    """원본 큐 → 클립 순서·트랜지션 반영 출력 타임라인으로 재매핑.
+
+    layout = [{"s": srcIn, "e": srcEnd, "outStart": 출력시작초}, ...] (render.clip_layout).
+    재정렬되면 큐도 따라 움직이고, 트림으로 잘린 부분은 빠진다.
+    """
+    out: List[Cue] = []
+    for c in cues:
+        for clip in layout:
+            a = max(c.start, clip["s"])
+            b = min(c.end, clip["e"])
+            if b > a:
+                base = clip["outStart"]
+                out.append(Cue(base + (a - clip["s"]), base + (b - clip["s"]), c.text))
+    out.sort(key=lambda x: x.start)
+    return out
+
+
 def _ts_srt(t: float) -> str:
     h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60)
     ms = int(round((t - int(t)) * 1000))
@@ -123,10 +141,42 @@ def _ts_ass(t: float) -> str:
     return f"{h:d}:{m:02d}:{s:05.2f}"
 
 
+_ALIGN = {"bottom": 2, "top": 8, "center": 5}
+
+
+def _ass_color(hexrgb: str, alpha: str = "00") -> str:
+    """'#RRGGBB' → ASS '&HAABBGGRR' (BGR 역순)."""
+    h = (hexrgb or "FFFFFF").lstrip("#")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    h = (h + "FFFFFF")[:6]
+    rr, gg, bb = h[0:2], h[2:4], h[4:6]
+    return f"&H{alpha}{bb}{gg}{rr}".upper()
+
+
+def style_to_kwargs(style: dict | None) -> dict:
+    """UI 스타일 dict → write_ass 키워드. 미지정 키는 기본값 유지."""
+    if not style:
+        return {}
+    keymap = {"fontSize": "font_size", "color": "color", "outlineW": "outline_w",
+              "outlineColor": "outline_color", "align": "align", "bold": "bold",
+              "box": "box", "marginV": "margin_v_ratio"}
+    return {dst: style[src] for src, dst in keymap.items() if style.get(src) is not None}
+
+
 def write_ass(cues: List[Cue], path: str, *, play_w: int = 1920, play_h: int = 1080,
-              font: str = "NanumGothic", font_size: int = 56) -> str:
-    """번인용 ASS. 외곽선+그림자, 하단 안전영역."""
-    margin_v = int(play_h * 0.08)
+              font: str = "NanumGothic", font_size: int = 56,
+              color: str = "FFFFFF", outline_w: float = 3, outline_color: str = "000000",
+              align: str = "bottom", bold: bool = True, box: bool = False,
+              margin_v_ratio: float = 0.08) -> str:
+    """번인용 ASS. 색·외곽선·위치·박스·굵기 스타일 지원, 하단 안전영역."""
+    margin_v = int(play_h * float(margin_v_ratio))
+    al = _ALIGN.get(align, 2)
+    primary = _ass_color(color)
+    outline = _ass_color(outline_color)
+    border_style = 3 if box else 1                 # 3 = 불투명 박스, 1 = 외곽선+그림자
+    back = _ass_color(outline_color, alpha="20") if box else "&H64000000"
+    shadow = 0 if box else 2
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {play_w}
@@ -135,7 +185,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{font_size},&H00FFFFFF,&H00000000,&H64000000,1,1,3,2,2,60,60,{margin_v},1
+Style: Default,{font},{int(font_size)},{primary},{outline},{back},{1 if bold else 0},{border_style},{outline_w},{shadow},{al},60,60,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

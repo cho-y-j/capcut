@@ -35,8 +35,12 @@
 - 콘텐츠 금광 = **"AI 자동 / 사람 손 경계"**. 어디까지 자동이고 어디부터 사람이
   마킹하는지가 채널 서사의 핵심. → C안에선 그 경계가 **우리 화면 안**(타임라인
   토글)에서 일어나므로 서사가 더 강력함.
-- 타깃: **초보자**. "말 영상 컷편집 + 자막"이라는 한 가지를 5분 만에. 복잡한
-  전환·이펙트·음악 라이브러리는 의도적으로 배제(그건 캡컷 핸드오프로).
+- 타깃: **중·초급**. "말 영상 컷편집 + 자막"을 5분 만에. **자체 편집기는 캡컷보다
+  기능은 적어도 편의성으로 승부하는 NLE-lite** — 줌/썸네일 타임라인, 클립 재정렬·
+  분할, 트랜지션, 멀티트랙(영상/오디오/자막), 자막 스타일을 **기본 탑재**한다.
+  핵심 차별점 = "AI가 다 해놨다 / 한눈에 보기 쉽다 / 다 되는데 아주 편하다".
+  전문가용 고급 작업(정밀 모션·이펙트·음악 라이브러리)은 **캡컷 드래프트 핸드오프**로
+  넘긴다. (2026-05-31 비전 전환: 과거 "전환·멀티트랙 의도적 배제" 방침을 뒤집음.)
 
 ## 0.5 품질 비전 (★ 모든 빌드 결정의 기준)
 > "초보자도 / AI 적극 활용 / 사용법은 간단 / 전문 프로그램 못지않은 퀄리티"
@@ -45,10 +49,18 @@
 - **AI 적극 활용**: 단순 컷 감지에 그치지 않음 — ① 무음/잔말/NG 자동 컷 +
   **컷 이유 표시**, ② 자막 자동 생성·스타일링, ③ 한 번 클릭 "자동 정리",
   ④ (여유되면) 훅/하이라이트 제안. 사람은 *승인/수정*만.
+- **NLE-lite 편집기 (v0.4.0~, 기본 탑재)**:
+  - **줌/스크롤 + 썸네일 필름스트립** 타임라인 — 한눈에 내용 파악.
+  - **멀티레인**: 영상 클립 / 자막 / 배경음악. 클립 **드래그 재정렬·분할(S)·삭제**,
+    끝 드래그로 **트림**(AI가 자른 부분 되살리기 포함).
+  - **트랜지션**: 클립 경계 디졸브/검정페이드/슬라이드/와이프(ffmpeg xfade).
+  - **자막 스타일 UI**: 크기·색·외곽선·위치·박스·굵기, 영상 위 라이브 미리보기.
+  - **진짜 미리보기**: 480p 프록시를 실제 렌더(컷·재정렬·트랜지션·오디오 반영).
 - **전문급 퀄리티 (타협 금지 항목)**:
   - 컷 지점 **오디오 미세 크로스페이드**(클릭/팝 제거) + 프레임 정확 컷.
+    트랜지션 구간은 영상 xfade + 오디오 adelay/amix 크로스페이드.
   - **루드니스 정규화**(목표 -14 LUFS) — 들쭉날쭉한 볼륨 평탄화.
-  - 자막: 가독성 폰트 + 외곽선/그림자, **하단 안전영역**, 한 줄 글자수 제한,
+  - 자막: 가독성 폰트 + 외곽선/그림자, **안전영역**, 한 줄 글자수 제한,
     **의존명사 청크**(§7) 줄바꿈, tabular 타이밍.
   - 추출 MP4: 원본 해상도 유지, 합리적 비트레이트, 음수 PTS/싱크 깨짐 방지.
 - 이 기준에 못 미치면 "빌드 성공"이라도 미완성으로 본다.
@@ -121,13 +133,18 @@ capcut/
     silence.py         ← ffmpeg silencedetect 래퍼 → 세그먼트 산출
     asr.py             ← faster-whisper (asyncio.Lock 직렬화 + content-hash 캐시)
     filler.py          ← 잔말/NG 대본 분석 → 컷 구간 산출
-    render.py          ← ① ffmpeg 점프컷 MP4 추출 (자막 번인/.srt)
-    draft.py           ← ② pycapcut로 draft_info.json 생성 (캡컷 핸드오프)
-    subtitle.py        ← 한국어 의존명사 청크 줄바꿈 + .srt 생성
-    static/index.html  ← 정적 1장 (drag/drop + SSE stepper + 타임라인 편집기)
-  cache/asr/           ← {content_hash}.json
+    render.py          ← ① ffmpeg 클립 타임라인 렌더(render_timeline): 재정렬·
+                          트랜지션(xfade+adelay/amix 2패스)·자막번인·BGM·프록시
+    waveform.py        ← 오디오 파형(peaks) — 타임라인 시각화
+    thumbnails.py      ← 썸네일 스프라이트(ffmpeg tile) — 필름스트립
+    draft.py           ← ② pycapcut로 draft_content.json 생성 (캡컷 핸드오프)
+    subtitle.py        ← 의존명사 청크 줄바꿈 + 스타일 .ass/.srt + 클립-aware remap
+    static/index.html  ← 정적 1장 (drag/drop + SSE stepper + 멀티레인 클립 편집기)
+  cache/asr/           ← {content_hash}.json   cache/thumbs/ ← 썸네일
+  uploads/             ← 업로드 원본 + _jobs.json(상태 영속)
   out/                 ← ① 추출 MP4  ② 캡컷 드래프트 (OUTPUT_DRAFT_DIR)
   samples/             ← 테스트용 mp4/mov
+  tests/smoke.py       ← 편집→추출→프리뷰→영속성 ffprobe 검증(pytest 불필요)
 ```
 - 설정: `OUTPUT_DIR`(기본 `./out`), `WHISPER_MODEL`(기본 자원에 맞춰 `medium`,
   여유 있으면 `large-v3`), `SILENCE_DB`(기본 -30dB), `SILENCE_MIN`(기본 0.4s).
@@ -136,7 +153,7 @@ capcut/
 
 ## 9. Git
 - 리모트: `https://github.com/cho-y-j/capcut.git`
-- `.gitignore`: `.venv/`, `bin/ffmpeg`, `cache/`, `out/`, `samples/`,
+- `.gitignore`: `.venv/`, `bin/`, `cache/`, `out/`, `uploads/`, `samples/`,
   `__pycache__/`, `*.mp4`, `*.mov` (모델·바이너리·미디어 비추적).
 - 단계별로 의미 있는 커밋 후 푸시.
 
