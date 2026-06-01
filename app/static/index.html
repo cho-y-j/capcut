@@ -165,6 +165,12 @@
 
   <!-- 시작 화면 -->
   <div id="start">
+    <div id="resumeBar" class="hide" style="display:flex;align-items:center;gap:12px;background:#161616;border:1px solid #262626;border-radius:12px;padding:12px 16px;margin-bottom:16px">
+      <span style="font-size:18px">↩️</span>
+      <div style="flex:1;font-size:13px">이전에 작업하던 영상이 있어요. <span style="color:#8a8a8a">이어서 편집할까요?</span></div>
+      <button id="resumeGo" style="background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">이어서 편집</button>
+      <button id="resumeNew" style="background:transparent;color:#8a8a8a;border:1px solid #262626;border-radius:8px;padding:8px 14px;cursor:pointer">새로 시작</button>
+    </div>
     <div class="tabs">
       <button class="tab on" data-mode="a">토킹 영상 편집</button>
       <button class="tab" data-mode="b">이미지 → 내레이션</button>
@@ -926,8 +932,14 @@ $("#capcutA").onclick=async()=>{$("#msgA").textContent="캡컷 드래프트…";
   const r=await fetch("/api/capcut",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
   const j=await r.json();$("#msgA").textContent=j.dir?("캡컷: "+j.dir):"실패";};
 
+let PENDING_RESTORE=null;
 async function tryRestore(){const raw=localStorage.getItem("capcut");if(!raw)return;
-  try{const st=JSON.parse(raw);const r=await fetch(`/api/job?id=${st.id}`);if(!r.ok)return;initEditor(st.id,(await r.json()).result,st);}catch(e){}}
+  try{const st=JSON.parse(raw);const r=await fetch(`/api/job?id=${st.id}`);
+    if(!r.ok){localStorage.removeItem("capcut");return;}                 // 서버에 없으면 조용히 정리
+    PENDING_RESTORE={st,result:(await r.json()).result};$("#resumeBar").classList.remove("hide");  // 랜딩 유지 + 배너로 선택
+  }catch(e){}}
+$("#resumeGo").onclick=()=>{if(!PENDING_RESTORE)return;$("#resumeBar").classList.add("hide");initEditor(PENDING_RESTORE.st.id,PENDING_RESTORE.result,PENDING_RESTORE.st);};
+$("#resumeNew").onclick=()=>{localStorage.removeItem("capcut");PENDING_RESTORE=null;$("#resumeBar").classList.add("hide");};
 
 // ===== 모드 B =====
 wireDrop($("#dropB"),$("#fileB"),files=>{imagesB=Array.from(files);$("#imgsB").textContent=`이미지 ${imagesB.length}장 선택됨`;$("#genB").disabled=imagesB.length===0;});
