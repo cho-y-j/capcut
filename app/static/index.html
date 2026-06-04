@@ -574,14 +574,16 @@ function subDrag(e){e.preventDefault();e.stopPropagation();pushHistory();const v
 function activeAt(o,t){return (o.start==null||t>=o.start-0.001)&&(o.end==null||t<o.end);}
 // 키프레임 모션 — 시각마다 위치·투명도를 찍어 그 사이를 선형보간(추출과 동일)
 function kfAt(o,t){const k=o.kf;if(!k||k.length<2)return null;const ks=[...k].sort((a,b)=>a.t-b.t);
-  const sc=v=>v.scale!=null?v.scale:o.scale;
-  const lerp=(a,b,f)=>({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,opacity:a.opacity+(b.opacity-a.opacity)*f,scale:sc(a)+(sc(b)-sc(a))*f});
-  if(t<=ks[0].t){const z=ks[0];return {x:z.x,y:z.y,opacity:z.opacity,scale:sc(z)};}
-  if(t>=ks[ks.length-1].t){const z=ks[ks.length-1];return {x:z.x,y:z.y,opacity:z.opacity,scale:sc(z)};}
+  const sc=v=>v.scale!=null?v.scale:o.scale,fz=v=>v.fontSize!=null?v.fontSize:o.fontSize,op=v=>v.opacity!=null?v.opacity:1;
+  const at=v=>({x:v.x,y:v.y,opacity:op(v),scale:sc(v),fontSize:fz(v)});
+  const lerp=(a,b,f)=>({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,opacity:op(a)+(op(b)-op(a))*f,
+    scale:sc(a)+(sc(b)-sc(a))*f,fontSize:fz(a)+(fz(b)-fz(a))*f});
+  if(t<=ks[0].t)return at(ks[0]);
+  if(t>=ks[ks.length-1].t)return at(ks[ks.length-1]);
   for(let i=1;i<ks.length;i++)if(t<=ks[i].t)return lerp(ks[i-1],ks[i],(t-ks[i-1].t)/((ks[i].t-ks[i-1].t)||1));
   return null;}
 function upsertKf(o,t,vals){if(!o.kf)o.kf=[];const i=o.kf.findIndex(k=>Math.abs(k.t-t)<0.05);
-  if(i>=0)o.kf[i]={...o.kf[i],...vals,t};else o.kf.push({t,x:o.x,y:o.y,opacity:o.opacity,scale:o.scale,...vals});
+  if(i>=0)o.kf[i]={...o.kf[i],...vals,t};else o.kf.push({t,x:o.x,y:o.y,opacity:o.opacity!=null?o.opacity:1,scale:o.scale,fontSize:o.fontSize,...vals});
   o.kf.sort((a,b)=>a.t-b.t);}
 function applyTextAnim(d,el,tx,t){const an=tx.anim;if(!an||an==="none")return;
   const s=tx.start!=null?tx.start:0,e=tx.end!=null?tx.end:t+3,dur=Math.max(0.2,e-s),el0=Math.max(0,t-s);
@@ -595,14 +597,15 @@ function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
   layer.querySelectorAll(".el").forEach(e=>e.remove());
   A.texts.forEach((tx,i)=>{const sel=A.sel&&A.sel.type==="text"&&A.sel.i===i;
     if(!activeAt(tx,t)&&!(sel&&!A.playing))return;  // 재생 중엔 시간 지나면 사라짐(멈춤+선택시만 편집용 표시)
+    const tkv=kfAt(tx,t);if(tkv){tx.x=tkv.x;tx.y=tkv.y;if(tkv.fontSize!=null)tx.fontSize=tkv.fontSize;tx.opacity=tkv.opacity;}  // 텍스트 키프레임 동기화
     const el=mkEl("text",i,tx.x,tx.y);
     const d=document.createElement("div");d.className="txt";d.textContent=tx.text||"텍스트";
-    if(!activeAt(tx,t))el.style.opacity=0.4;     // 선택했지만 현재 구간 밖이면 흐리게
+    if(!activeAt(tx,t))el.style.opacity=0.4;else if(tkv)el.style.opacity=tx.opacity;  // 키프레임 투명도
     d.style.fontFamily=`"${tx.font}",sans-serif`;d.style.fontSize=Math.max(11,tx.fontSize*box.h/(A.h||720))+"px";
     d.style.color=tx.color;d.style.fontWeight=tx.bold?"700":"400";
     const ow=Math.max(0,tx.outlineW)*box.h/(A.h||720);
     d.style.textShadow=ow>0?`0 0 ${ow}px ${tx.outlineColor},0 0 ${ow}px ${tx.outlineColor},0 0 ${ow}px ${tx.outlineColor}`:"none";
-    if(A.playing&&activeAt(tx,t))applyTextAnim(d,el,tx,t);   // 재생 중 텍스트 애니(팝/커짐/작아짐) 라이브
+    if(A.playing&&activeAt(tx,t)&&!tkv)applyTextAnim(d,el,tx,t);   // 키프레임 없을 때만 프리셋 애니
     el.appendChild(d);el.ondblclick=()=>{select("text",i);const ta=$("#fldText");if(ta){ta.focus();ta.select();}};
     layer.appendChild(el);});
   A.overlays.forEach((o,i)=>{const sel=A.sel&&A.sel.type==="overlay"&&A.sel.i===i;
@@ -622,16 +625,16 @@ function mkEl(type,i,x,y){const el=document.createElement("div");
 function elDrag(e,type,i){e.preventDefault();e.stopPropagation();select(type,i);
   if(e.target.classList.contains("rs"))return;pushHistory();
   const v=$("#srcA"),r=v.getBoundingClientRect(),o=(type==="text"?A.texts:A.overlays)[i];
-  const kfed=type==="overlay"&&o.kf&&o.kf.length;   // 키프레임 있으면 드래그=현재 시각 키프레임 편집
+  const kfed=o.kf&&o.kf.length;   // 키프레임 있으면 드래그=현재 시각 키프레임 편집(텍스트·로고 공통)
   const mv=ev=>{const nx=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width)),ny=Math.max(0,Math.min(1,(ev.clientY-r.top)/r.height));
     o.x=nx;o.y=ny;if(kfed)upsertKf(o,curOut(),{x:nx,y:ny});renderStage();if(kfed)redraw();};
   const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);if(kfed)renderInspector();save();};
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
 function elResize(e,type,i){e.preventDefault();e.stopPropagation();pushHistory();
   const box=stageBox(),startX=e.clientX,o=(type==="text"?A.texts:A.overlays)[i];
-  const base=type==="text"?o.fontSize:o.scale;const kfed=type==="overlay"&&o.kf&&o.kf.length;
+  const base=type==="text"?o.fontSize:o.scale;const kfed=o.kf&&o.kf.length;
   const mv=ev=>{const dx=(ev.clientX-startX);
-    if(type==="text")o.fontSize=Math.max(12,Math.round(base+dx*(A.h||720)/box.h));
+    if(type==="text"){o.fontSize=Math.max(12,Math.round(base+dx*(A.h||720)/box.h));if(kfed)upsertKf(o,curOut(),{fontSize:o.fontSize});}
     else{o.scale=Math.max(.03,Math.min(1,base+dx/box.w));if(kfed)upsertKf(o,curOut(),{scale:o.scale});}
     renderStage();if(kfed)redraw();renderInspector();};
   const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);save();};
@@ -770,7 +773,7 @@ function drawElLane(sel,cls,arr){const ln=$(sel);ln.innerHTML="";const total=lay
     el.querySelector(".h.l").onpointerdown=ev=>{ev.stopPropagation();barDrag(ev,ty,i,"l");};
     el.querySelector(".h.r").onpointerdown=ev=>{ev.stopPropagation();barDrag(ev,ty,i,"r");};
     el.oncontextmenu=ev=>elCtxMenu(ev,ty,i);
-    if(ty==="overlay"&&o.kf&&o.kf.length)o.kf.forEach(k=>{const m=document.createElement("div");m.className="kfm";
+    if(o.kf&&o.kf.length)o.kf.forEach(k=>{const m=document.createElement("div");m.className="kfm";
       m.style.left=Math.max(0,px(k.t-s)-3)+"px";m.title="키프레임 @"+(+k.t).toFixed(1)+"s";el.appendChild(m);});
     ln.appendChild(el);});}
 function barDrag(e,type,i,kind){e.preventDefault();e.stopPropagation();select(type,i);pushHistory();
@@ -1060,12 +1063,25 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
       ${fldRange("외곽두께","fT_ow",0,8,.5,t.outlineW)}
       <div class="fld"><label>효과</label><select id="fT_anim">${ANIMS.map(([v,l])=>`<option value="${v}" ${t.anim===v?'selected':''}>${l}</option>`).join("")}</select>
         <label style="width:auto"><input type="checkbox" id="fT_bold" ${t.bold?'checked':''}> 굵게</label></div>
+      ${fldRange("투명도","fT_op",10,100,5,Math.round((t.opacity!=null?t.opacity:1)*100))}
       ${fldText("시작(초)","fT_s",t.start?.toFixed?.(1)??t.start)}${fldText("끝(초)","fT_e",t.end?.toFixed?.(1)??t.end)}
-      <button class="btn ghost sm" id="fT_del">삭제</button>`;
+      <div class="seg" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
+        <h3>◆ 키프레임 모션 <span class="num" style="color:var(--dim)">${(t.kf||[]).length}개</span></h3>
+        <div class="row"><button class="btn sm" id="fT_kfadd">◆ 현재 시각에 찍기</button>
+          <button class="btn ghost sm" id="fT_kfclr" ${(t.kf||[]).length?'':'disabled'}>모두 지우기</button></div>
+        <div class="hint" style="margin-top:4px">◆ 두 번 이상 찍으면 위치·크기·투명도가 부드럽게 움직임. 키프레임이 있으면 끌기=위치·모서리=크기·슬라이더=크기/투명도가 그 시각에 기록.</div>
+      </div>
+      <button class="btn ghost sm" id="fT_del" style="margin-top:8px">삭제</button>`;
+    const tkfd=()=>t.kf&&t.kf.length;
     const set=(k,v,re)=>{t[k]=v;renderStage();redraw();if(re)renderInspector();save();};
     $("#fldText").oninput=e=>{t.text=e.target.value;renderStage();redraw();};$("#fldText").onchange=()=>{pushHistory();save();};
     $("#fT_font").onchange=e=>{pushHistory();set("font",e.target.value);};
-    $("#fT_size").oninput=e=>set("fontSize",+e.target.value);$("#fT_size").onchange=()=>{pushHistory();save();};
+    $("#fT_size").oninput=e=>{t.fontSize=+e.target.value;if(tkfd())upsertKf(t,curOut(),{fontSize:t.fontSize});renderStage();redraw();};$("#fT_size").onchange=()=>{pushHistory();save();};
+    $("#fT_op").oninput=e=>{t.opacity=(+e.target.value)/100;if(tkfd())upsertKf(t,curOut(),{opacity:t.opacity});renderStage();if(tkfd())redraw();};$("#fT_op").onchange=()=>{pushHistory();save();};
+    $("#fT_kfadd").onclick=()=>{pushHistory();upsertKf(t,curOut(),{x:t.x,y:t.y,fontSize:t.fontSize,opacity:t.opacity!=null?t.opacity:1});
+      if(t.start==null)t.start=t.kf[0].t;if(t.end==null||t.end<t.kf[t.kf.length-1].t)t.end=t.kf[t.kf.length-1].t;
+      $("#msgA").textContent="텍스트 키프레임 "+t.kf.length+"개";redraw();renderInspector();save();};
+    $("#fT_kfclr").onclick=()=>{pushHistory();t.kf=[];redraw();renderInspector();save();};
     $("#fT_color").oninput=e=>set("color",e.target.value);$("#fT_oc").oninput=e=>set("outlineColor",e.target.value);
     $("#fT_ow").oninput=e=>set("outlineW",+e.target.value);
     $("#fT_anim").onchange=e=>{pushHistory();set("anim",e.target.value);};
@@ -1259,8 +1275,8 @@ function payload(){return{id:A.id,clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.
   sfx:A.sfx.map(s=>({token:s.token,preset:s.preset,at:s.at,volume:s.volume})),
   audios:A.audios.map(a=>({token:a.token,at:a.at,in:a.in,dur:a.dur,volume:a.volume,fadeIn:a.fadeIn,fadeOut:a.fadeOut})),
   pips:A.pips.map(p=>({src:p.src,x:p.x,y:p.y,scale:p.scale,opacity:p.opacity,start:p.start,end:p.end,in:p.in,volume:p.volume,kf:p.kf||[]})),
-  grade:A.grade,
-  texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim}))};}
+  grade:A.grade,srcH:A.h,
+  texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim,opacity:t.opacity!=null?t.opacity:1,kf:t.kf||[]}))};}
 async function startJob(url,statusUrl,label){$("#prog").style.width="0";$("#msgA").textContent=label+" 시작…";
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
   const j=await r.json();if(j.error){alert(label+" 실패: "+j.error+" (서버 재시작 시 영상 재업로드 필요)");return;}

@@ -96,6 +96,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    pips: Sequence[dict] | None = None,
                    texts: Sequence[dict] | None = None, canvas: tuple | None = None,
                    sources: dict | None = None, grade: dict | None = None,
+                   src_h: float | None = None,
                    model: str | None = None, normalize: bool = True,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 → MP4 (+ 자막 + 텍스트박스 + 배경음악 + 오버레이 + 효과음).
@@ -108,10 +109,39 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
     if not clips:
         raise ValueError("클립(보존 구간)이 비었습니다.")
     texts = list(texts or [])
+    overlays = list(overlays or [])
     bo = bgm_opts or {}
     vol = float(bo.get("volume", 0.16))
     fin, fout = float(bo.get("fadeIn", 0.0)), float(bo.get("fadeOut", 0.0))
     layout, total = render.clip_layout(clips)
+    w, h = canvas if canvas else probe_video(input_path)[:2]
+    sh = float(src_h or h)
+    # 키프레임 있는 텍스트는 PNG로 래스터라이즈 → 오버레이 키프레임 파이프라인(위치·크기·투명도)
+    plain_texts = []
+    for ix, t in enumerate(texts):
+        kfs = t.get("kf") or []
+        if len(kfs) < 2:
+            plain_texts.append(t)
+            continue
+        fs0 = float(t.get("fontSize", 60))
+        max_fs = max([fs0] + [float(k.get("fontSize", fs0)) for k in kfs])
+        font_px = max_fs * h / sh
+        stroke_px = float(t.get("outlineW", 3)) * h / sh
+        png = str(Path(out_path).with_suffix(f".kt{ix}.png"))
+        try:
+            pw, _ph = subtitle.text_to_png(t, font_px, stroke_px, png)
+        except Exception:  # noqa: BLE001 — 렌더 실패하면 평문 ASS로 폴백
+            plain_texts.append(t)
+            continue
+        base_sc = pw / w
+        overlays.append({"path": png, "x": float(t.get("x", .5)), "y": float(t.get("y", .5)),
+                         "scale": base_sc, "opacity": 1.0,
+                         "start": t.get("start"), "end": t.get("end"),
+                         "kf": [{"t": float(k["t"]), "x": float(k.get("x", t.get("x", .5))),
+                                 "y": float(k.get("y", t.get("y", .5))),
+                                 "scale": base_sc * (float(k.get("fontSize", max_fs)) / max_fs),
+                                 "opacity": float(k.get("opacity", 1))} for k in kfs]})
+    texts = plain_texts
     has_ov = bool(overlays) or bool(sfx) or bool(audios) or bool(pips)
     need_burn = subtitles or bool(texts)
     base = out_path if not has_ov else str(Path(out_path).with_suffix(".noov.mp4"))

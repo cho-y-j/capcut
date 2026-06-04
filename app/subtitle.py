@@ -6,10 +6,73 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List
 
 from . import config
+
+
+def _font_file(family: str, bold: bool = False) -> str | None:
+    """폰트 패밀리명 → TTF 파일 경로 (fc-match). 키프레임 텍스트 PNG 렌더용."""
+    q = f"{family}:bold" if bold else family
+    try:
+        r = subprocess.run(["fc-match", "-f", "%{file}", q], capture_output=True, text=True)
+        p = r.stdout.strip()
+        if p and Path(p).exists():
+            return p
+    except Exception:  # noqa: BLE001
+        pass
+    import glob
+    g = (glob.glob("/usr/share/fonts/**/NanumGothic*.ttf", recursive=True)
+         or glob.glob("/usr/share/fonts/**/*.ttf", recursive=True))
+    return g[0] if g else None
+
+
+def _hex_rgb(s: str):
+    s = (s or "#ffffff").lstrip("#")
+    if len(s) == 3:
+        s = "".join(c * 2 for c in s)
+    try:
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    except ValueError:
+        return (255, 255, 255)
+
+
+def text_to_png(t: dict, font_px: float, stroke_px: float, out_path: str) -> tuple[int, int]:
+    """자유 텍스트박스 1개를 투명 PNG로 렌더(키프레임 텍스트 → 오버레이 파이프라인).
+
+    웹 미리보기(HTML 텍스트)와 동일 룩: 폰트·크기·색·외곽선·굵기·줄바꿈. 반환=(w,h).
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    text = (t.get("text", "") or "텍스트")
+    fp = _font_file(t.get("font", "Noto Sans CJK KR"), bool(t.get("bold", True)))
+    fpx = max(8, int(round(font_px)))
+    font = ImageFont.truetype(fp, fpx) if fp else ImageFont.load_default()
+    fill = _hex_rgb(t.get("color", "#ffffff"))
+    oc = _hex_rgb(t.get("outlineColor", "#000000"))
+    sw = max(0, int(round(stroke_px)))
+    lines = text.split("\n")
+    tmp = Image.new("RGBA", (4, 4))
+    d0 = ImageDraw.Draw(tmp)
+    sizes = [d0.textbbox((0, 0), ln or " ", font=font, stroke_width=sw) for ln in lines]
+    lw = [b[2] - b[0] for b in sizes]
+    lh = [b[3] - b[1] for b in sizes]
+    pad = sw + max(4, fpx // 6)
+    line_gap = int(fpx * 0.18)
+    W = max(lw) + pad * 2
+    H = sum(lh) + line_gap * (len(lines) - 1) + pad * 2
+    img = Image.new("RGBA", (max(2, W), max(2, H)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    y = pad
+    for i, ln in enumerate(lines):
+        x = (W - lw[i]) // 2 - sizes[i][0]
+        d.text((x, y - sizes[i][1]), ln, font=font, fill=fill,
+               stroke_width=sw, stroke_fill=oc)
+        y += lh[i] + line_gap
+    img.save(out_path)
+    return img.size
 
 # 줄 맨앞에 오면 어색한 의존명사 (앞말과 붙임)
 DEP_NOUNS = {

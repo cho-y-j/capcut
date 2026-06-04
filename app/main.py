@@ -456,7 +456,8 @@ async def export(req: Request) -> JSONResponse:
                                     subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
                                     sfx=sfx, audios=audios, pips=pips, texts=texts, canvas=canvas,
-                                    sources=job.get("sources"), grade=body.get("grade"), progress=_cb)
+                                    sources=job.get("sources"), grade=body.get("grade"),
+                                    src_h=body.get("srcH"), progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             EXPORT[jid].update(done=True, error=str(e))
