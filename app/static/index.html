@@ -62,6 +62,19 @@
   .btn.sm{padding:5px 9px;font-size:11px}
   .btn.add{background:#101a12;border:1px solid #2f5d3c;color:#bdf0cd;text-align:left}
   .btn.add:hover{border-color:var(--accent)}
+  .btn.export{background:var(--accent);color:#04130a;font-weight:700;padding:7px 14px;font-size:12px}
+  /* 추가 팝오버 / 카테고리 */
+  .addbar{display:flex;gap:6px;margin-bottom:8px}
+  .addbar .btn.add{flex:1;text-align:center;font-weight:600}
+  .addmenu{border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px;background:#121212}
+  .amcat{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin:8px 2px 4px}
+  .amcat:first-child{margin-top:0}
+  #aiBox{margin-bottom:8px}
+  /* 상단 더보기 / 모바일 FAB / 닫기 */
+  .more{position:relative}.more summary{list-style:none}.more summary::-webkit-details-marker{display:none}
+  .morepop{position:absolute;right:0;top:110%;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;z-index:40;box-shadow:0 8px 24px #000a;min-width:150px}
+  .fab{display:none}
+  .mobclose{display:none}
   .steps{display:flex;margin:14px 0}
   .step{flex:1;display:flex;flex-direction:column;gap:8px}
   .dot{width:6px;height:6px;border-radius:50%;background:#333;transition:.25s}
@@ -84,7 +97,21 @@
   .inspector{overflow-y:auto;overflow-x:hidden;padding:14px;background:var(--card)}
   .timeline-region{border-top:1px solid var(--line);background:#0e0e0e;overflow:hidden;height:250px}
   .timeline-region .laneh{margin:4px 0 1px 10px}
-  @media(max-width:760px){.main{grid-template-columns:1fr}.inspector{display:none}}
+  @media(max-width:760px){
+    .main{grid-template-columns:1fr}
+    .topbar{flex-wrap:wrap;gap:6px;padding:6px 8px}
+    .topbar .brand{font-size:12px}.topbar #tc,.topbar .bar{display:none}
+    .timeline-region{height:200px}
+    /* 인스펙터 = 하단 시트(평소 숨김, FAB/선택 시 올라옴) */
+    .inspector{position:fixed;left:0;right:0;bottom:0;top:auto;max-height:64vh;z-index:60;
+      border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -10px 30px #000c;
+      transform:translateY(101%);transition:transform .22s ease}
+    .inspector.open{transform:translateY(0)}
+    .mobclose{display:block;text-align:center;color:var(--dim);font-size:12px;padding:4px 0 8px;cursor:pointer}
+    .fab{display:flex;align-items:center;justify-content:center;position:fixed;right:14px;bottom:14px;z-index:55;
+      width:52px;height:52px;border-radius:50%;background:var(--accent);color:#04130a;border:0;font-size:22px;
+      cursor:pointer;box-shadow:0 6px 18px #0008}
+  }
 
   .stage{position:relative;background:#000;border-radius:8px;overflow:hidden}
   .stage video{width:100%;height:100%;display:block;object-fit:cover;background:#000}
@@ -257,13 +284,18 @@
       <div class="bar" style="max-width:130px;flex:none;width:130px"><i id="prog"></i></div>
       <span class="hint" id="msgA"></span>
       <div class="tbright">
-        <button class="btn ghost sm" id="helpBtn">❔ 사용법</button>
-        <button class="btn ghost sm" id="previewA" title="전환·음량정규화까지 반영된 고화질 미리보기(서버 렌더). 빠른 확인은 좌측 ▶재생">▶ 미리보기(고화질)</button>
-        <button class="btn sm" id="exportA">MP4 추출</button>
-        <button class="btn ghost sm" id="capcutA">캡컷</button>
-        <button class="btn ghost sm" id="newA">↺ 새 영상</button>
+        <button class="btn ghost sm" id="helpBtn" title="사용법">❔</button>
+        <button class="btn ghost sm" id="previewA" title="전환·음량정규화까지 반영된 고화질 미리보기(서버 렌더). 빠른 확인은 좌측 ▶재생">▶ 미리보기</button>
+        <button class="btn export" id="exportA">⬇ MP4 추출</button>
+        <details class="more"><summary class="btn ghost sm">⋯</summary>
+          <div class="morepop">
+            <button class="btn ghost sm" id="capcutA">캡컷으로 보내기</button>
+            <button class="btn ghost sm" id="newA">↺ 새 영상</button>
+          </div>
+        </details>
       </div>
     </div>
+    <button id="mobEdit" class="fab" title="추가·편집 패널">✏️</button>
     <div class="main">
       <div class="previewcol">
         <div class="stagewrap"><div class="stage"><video id="srcA"></video>
@@ -282,28 +314,44 @@
         </div>
       </div>
       <div class="inspector">
-        <h3>🎞 클립 이어붙이기</h3>
-        <div class="addgrid">
-          <button class="btn add sm" id="addClipVid">🎬 영상 추가(이어붙이기)</button>
-          <button class="btn add sm" id="addClipImg">🖼 사진 추가</button>
-          <button class="btn add sm" id="addPip">🎬➕ 영상 얹기(PIP)</button>
+        <div class="mobclose" id="mobClose">▾ 닫기</div>
+        <div class="addbar">
+          <button class="btn add" id="addOpen">➕ 추가</button>
+          <button class="btn ghost sm" id="aiOpen" title="AI에게 말로 시키기">🤖 AI에게</button>
+        </div>
+        <div id="addMenu" class="addmenu hide">
+          <div class="amcat">미디어</div>
+          <div class="addgrid">
+            <button class="btn add sm" id="addClipVid">🎬 영상</button>
+            <button class="btn add sm" id="addClipImg">🖼 사진</button>
+            <button class="btn add sm" id="addPip">🎬 영상 위 영상</button>
+          </div>
+          <div class="amcat">글자 · 그림</div>
+          <div class="addgrid">
+            <button class="btn add sm" id="addText">🔤 글자</button>
+            <button class="btn add sm" id="addLogo">🖼 이미지 · 스티커</button>
+          </div>
+          <div class="amcat">소리</div>
+          <div class="addgrid">
+            <button class="btn add sm" id="addSfx">🔔 효과음</button>
+            <button class="btn add sm" id="addAudio">🎶 음악파일</button>
+            <button class="btn add sm" id="addMusic">🎵 배경음악</button>
+          </div>
+          <div class="amcat">효과 · 도구</div>
+          <div class="addgrid">
+            <button class="btn add sm" id="addGrade">🎨 색감</button>
+            <button class="btn add sm" id="addCut">✂️ 자르기</button>
+          </div>
+          <div class="amcat">빠른 추가 (버튼 · 효과음)</div>
+          <div class="chips" id="presetChips"></div>
+        </div>
+        <div id="aiBox" class="hide">
+          <input type="text" id="chatAdd" placeholder="예) 쇼츠로 바꾸고 2초에 구독버튼+딩소리" style="font-size:11px">
+          <div class="hint" style="margin-top:3px">엔터 → AI가 알아서 처리 · <a href="/api/admin" target="_blank" style="color:var(--dim)">⚙ AI 설정</a></div>
         </div>
         <input type="file" id="pipFile" accept="video/*" class="hide">
         <input type="file" id="clipVidFile" accept="video/*" class="hide">
         <input type="file" id="clipImgFile" accept="image/*" class="hide">
-        <h3 style="margin-top:12px">➕ 올리기 (현재 위치)</h3>
-        <div class="addgrid">
-          <button class="btn add sm" id="addText">➕ 텍스트</button>
-          <button class="btn add sm" id="addLogo">🖼 로고(오버레이)</button>
-          <button class="btn add sm" id="addSfx">🔔 효과음 파일</button>
-          <button class="btn add sm" id="addAudio">🎶 오디오(mp3)</button>
-          <button class="btn add sm" id="addMusic">🎵 배경음악</button>
-          <button class="btn add sm" id="addGrade">🎨 색보정·필터</button>
-          <button class="btn add sm" id="addCut">✂️ 자르기</button>
-        </div>
-        <div class="chips" id="presetChips"></div>
-        <input type="text" id="chatAdd" placeholder="🤖 AI에게: 쇼츠로 바꾸고 2초에 구독버튼+클릭음…" style="margin-top:7px;font-size:11px">
-        <div class="hint" style="margin-top:3px">엔터 → AI가 처리 · <a href="/api/admin" target="_blank" style="color:var(--dim)">⚙ AI 설정</a></div>
         <input type="file" id="logoFile" accept="image/*" class="hide">
         <input type="file" id="sfxFile" accept="audio/*" class="hide">
         <input type="file" id="audioFile" accept="audio/*" class="hide">
@@ -317,9 +365,9 @@
       <div class="editor-tl" id="tlScroll"><div class="tlinner" id="tlInner">
         <div class="ruler" id="ruler"></div>
         <div class="laneh">영상</div><div class="lane v" id="laneV"></div>
-        <div class="laneh">자막</div><div class="lane s" id="laneS"></div>
-        <div class="laneh" id="laneHT">텍스트</div><div class="lane t" id="laneT"></div>
-        <div class="laneh" id="laneHO">로고·이미지</div><div class="lane a" id="laneO"></div>
+        <div class="laneh" id="laneHS">자막</div><div class="lane s" id="laneS"></div>
+        <div class="laneh" id="laneHT">글자</div><div class="lane t" id="laneT"></div>
+        <div class="laneh" id="laneHO">이미지·스티커</div><div class="lane a" id="laneO"></div>
         <div class="laneh" id="laneHP">영상 PIP</div><div class="lane a" id="laneP"></div>
         <div class="laneh" id="laneHF">효과음</div><div class="lane a" id="laneF"></div>
         <div class="laneh" id="laneHU">오디오(mp3)</div><div class="lane a" id="laneU"></div>
@@ -348,7 +396,7 @@
     <h2>🎬 30초 사용법</h2>
     <p class="s">AI가 컷·자막은 이미 해놨어요. 아래 3가지만 알면 끝!</p>
     <div class="grow-row"><div class="e">👆</div><div><b>영상 위에서 바로</b><br><span>글자·로고를 끌어 옮기고, 모서리로 크기조절, 더블클릭으로 글자 수정</span></div></div>
-    <div class="grow-row"><div class="e">➡️</div><div><b>오른쪽 = 추가 & 조절</b><br><span>➕텍스트·🖼로고·🔔효과음 버튼으로 현재 위치에 추가. 무엇이든 클릭하면 색·크기·시간이 오른쪽에</span></div></div>
+    <div class="grow-row"><div class="e">➡️</div><div><b>오른쪽 ➕추가 = 다 넣기</b><br><span>글자·이미지·소리·영상·색감을 ➕추가 하나로. 무엇이든 클릭하면 색·크기·시간이 오른쪽에. (휴대폰은 우하단 ✏️)</span></div></div>
     <div class="grow-row"><div class="e">⬇️</div><div><b>아래 타임라인 = 컷·순서·길이</b><br><span>클립 끌어 순서, 끝 끌어 길이, 막대 끌어 "언제 나오고 사라질지", 눈금 끌어 재생위치</span></div></div>
     <div class="grow-row" style="border:0"><div class="e">⬇️</div><div><b>다 됐으면 ▶미리보기 → MP4 추출</b><br><span>고급 작업은 '캡컷' 드래프트로 넘길 수도 있어요</span></div></div>
     <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="btn" id="helpClose">알겠어요, 시작!</button></div>
@@ -701,11 +749,14 @@ function stageCtxMenu(e){e.preventDefault();const v=$("#srcA"),r=v.getBoundingCl
     {label:"🖼 여기에 로고/이미지",fn:()=>{A._dropXY={x,y};$("#logoFile").click();}}]);}
 
 // ===== 선택 =====
-function select(type,i){A.sel={type,i};renderStage();redraw();renderInspector();}
+function select(type,i){A.sel={type,i};renderStage();redraw();renderInspector();
+  if(window.innerWidth<=760)$(".inspector").classList.add("open");}   // 모바일: 선택 시 편집 시트 올림
 function deselect(){A.sel=null;renderStage();redraw();renderInspector();}
 
 // ===== 타임라인 =====
 function px(t){return t*A.pxPerSec;}
+// 빈 레인은 숨김(내용 생기면 자동 표시) — 초보자 시야 정리
+function laneShow(k,on){const h=$("#laneH"+k),l=$("#lane"+k);const d=on?"":"none";if(h)h.style.display=d;if(l)l.style.display=d;}
 // 멀티트랙 스태킹: 시간 겹치는 항목을 서브행으로 분배(인터벌 분할, 충돌 방지)
 const TL_ROW=22,TL_GAP=3;
 function packRows(spans){const order=spans.map((s,i)=>i).sort((a,b)=>spans[a].s-spans[b].s||spans[a].e-spans[b].e);
@@ -746,9 +797,8 @@ function redraw(){if(!A)return;const {starts,total,dv}=layout();
   drawElLane("#laneT","text",A.texts);
   drawElLane("#laneO","ov",A.overlays);
   drawSfx();drawBgm();drawAudios();drawPips();renderPips();applyGradeCss();
-  $("#laneHT").style.opacity=A.texts.length?1:.4;$("#laneHO").style.opacity=A.overlays.length?1:.4;
-  $("#laneHF").style.opacity=A.sfx.length?1:.4;$("#laneHA").style.opacity=A.bgm.enabled?1:.4;
-  $("#laneHU").style.opacity=A.audios.length?1:.4;$("#laneHP").style.opacity=A.pips.length?1:.4;
+  laneShow("S",A.subsOn!==false&&A.cues.length);laneShow("T",A.texts.length);laneShow("O",A.overlays.length);
+  laneShow("P",A.pips.length);laneShow("F",A.sfx.length);laneShow("U",A.audios.length);laneShow("A",A.bgm.enabled);
   $("#sDur").textContent=fmt(total);$("#sClips").textContent=A.clips.length;
   $("#sEls").textContent=A.texts.length+A.overlays.length+A.sfx.length+A.audios.length+A.pips.length;
   updatePh();}
@@ -887,6 +937,12 @@ $("#addMusic").onclick=()=>$("#bgmFile").click();
 $("#bgmFile").onchange=async()=>{const f=$("#bgmFile").files[0];if(!f)return;const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   const j=await(await fetch("/api/bgm",{method:"POST",body:fd})).json();A.bgm.file=f.name;A.bgm.url=j.url||null;A.bgm.enabled=true;select("bgm",0);redraw();save();$("#msgA").textContent="배경음악: "+f.name;};
 $("#addCut").onclick=()=>splitAt();
+// 추가 팝오버 / AI 토글 / 모바일 하단 시트
+$("#addOpen").onclick=()=>{$("#addMenu").classList.toggle("hide");$("#aiBox").classList.add("hide");};
+$("#aiOpen").onclick=()=>{$("#aiBox").classList.toggle("hide");$("#addMenu").classList.add("hide");};
+$("#addMenu").addEventListener("click",e=>{if(e.target.closest(".btn.add,.chip-btn"))$("#addMenu").classList.add("hide");});
+$("#mobEdit").onclick=()=>$(".inspector").classList.toggle("open");
+$("#mobClose").onclick=()=>$(".inspector").classList.remove("open");
 // 색보정·필터
 const GRADE_PRESETS=[["원본",{brightness:1,contrast:1,saturation:1,warmth:0}],
   ["선명",{brightness:1.03,contrast:1.12,saturation:1.35,warmth:0.1}],
