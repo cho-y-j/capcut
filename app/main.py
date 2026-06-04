@@ -236,6 +236,8 @@ async def autocut_render(req: Request) -> JSONResponse:
         try:
             res, extras = await asyncio.to_thread(_build_autocut, jid, st["fmt"], st["media"],
                                                   plan, music, voice, _cb)
+            if jid in JOBS:
+                JOBS[jid]["result"] = res        # /api/job 복원용(뒤로가기/새로고침 시 살아남음)
             AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
             save_jobs()
         except Exception as e:  # noqa: BLE001
@@ -412,6 +414,58 @@ async def get_job(id: str) -> JSONResponse:
     if not job or "result" not in job:
         return JSONResponse({"error": "unknown job"}, status_code=404)
     return JSONResponse({"result": job["result"]})
+
+
+# ===== 드래프트(내 작업) 라이브러리 — 서버 영속, 어디서나 이어서 =====
+_DRAFTS_DIR = config.UPLOAD_DIR / "drafts"
+
+
+@app.post("/api/draft/save")
+async def draft_save(req: Request) -> JSONResponse:
+    """편집기 상태(state)를 job id 기준으로 1개 보관. 자동저장+수동저장 공용."""
+    body = await req.json()
+    jid = body.get("id")
+    if not jid or jid not in JOBS:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    _DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+    import time
+    rec = {"id": jid, "name": (body.get("name") or "무제 작업").strip()[:60],
+           "savedAt": int(time.time()), "state": body.get("state") or {}}
+    (_DRAFTS_DIR / f"{jid}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+    return JSONResponse({"ok": True, "id": jid})
+
+
+@app.get("/api/draft/list")
+async def draft_list() -> JSONResponse:
+    """최근 작업 목록(최신순). 미디어(job)가 아직 살아있는 것만."""
+    if not _DRAFTS_DIR.exists():
+        return JSONResponse([])
+    out = []
+    for p in _DRAFTS_DIR.glob("*.json"):
+        try:
+            r = json.loads(p.read_text(encoding="utf-8"))
+            if r.get("id") in JOBS:                    # 미디어 사라진 작업은 숨김
+                out.append({"id": r["id"], "name": r.get("name", "무제"), "savedAt": r.get("savedAt", 0)})
+        except Exception:  # noqa: BLE001
+            continue
+    out.sort(key=lambda x: x["savedAt"], reverse=True)
+    return JSONResponse(out[:30])
+
+
+@app.get("/api/draft/get")
+async def draft_get(id: str) -> JSONResponse:
+    p = _DRAFTS_DIR / f"{id}.json"
+    if not p.exists():
+        return JSONResponse({"error": "no draft"}, status_code=404)
+    return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+
+
+@app.post("/api/draft/delete")
+async def draft_delete(req: Request) -> JSONResponse:
+    body = await req.json()
+    p = _DRAFTS_DIR / f"{body.get('id')}.json"
+    p.unlink(missing_ok=True)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/api/bgm")

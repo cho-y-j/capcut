@@ -89,6 +89,10 @@
   .acsth{width:46px;height:46px;flex:none;border-radius:8px;border:1px solid var(--line);background:var(--surface);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px}
   .acsth img{width:100%;height:100%;object-fit:cover}
   .acsrow input{flex:1}
+  .recentlist{display:flex;gap:8px;flex-wrap:wrap}
+  .recentlist .ritem{border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;background:var(--surface);font-size:12px;display:flex;gap:8px;align-items:center}
+  .recentlist .ritem:hover{border-color:var(--accent)}
+  .recentlist .ritem .rx{color:var(--dim);font-size:11px;border:0;background:transparent;cursor:pointer}
   .steps{display:flex;margin:14px 0}
   .step{flex:1;display:flex;flex-direction:column;gap:8px}
   .dot{width:6px;height:6px;border-radius:50%;background:#333;transition:.25s}
@@ -225,6 +229,10 @@
       <button id="resumeGo" style="background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">이어서 편집</button>
       <button id="resumeNew" style="background:transparent;color:#8a8a8a;border:1px solid #262626;border-radius:8px;padding:8px 14px;cursor:pointer">새로 시작</button>
     </div>
+    <div id="recentBar" class="hide" style="margin-bottom:16px">
+      <div style="font-size:12px;color:var(--dim);margin-bottom:6px">📂 내 작업 (이어서 편집)</div>
+      <div id="recentList" class="recentlist"></div>
+    </div>
     <div class="tabs">
       <button class="tab on" data-mode="c">✨ AI 첫 컷 메이커</button>
       <button class="tab" data-mode="a">토킹 영상 편집</button>
@@ -335,6 +343,7 @@
       <span class="num hint" id="tc">0:00 / 0:00</span>
       <div class="bar" style="max-width:130px;flex:none;width:130px"><i id="prog"></i></div>
       <span class="hint" id="msgA"></span>
+      <span class="hint" id="savedTag" style="opacity:.45">저장됨 ✓</span>
       <div class="tbright">
         <button class="btn ghost sm" id="helpBtn" title="사용법">❔</button>
         <button class="btn ghost sm" id="previewA" title="전환·음량정규화까지 반영된 고화질 미리보기(서버 렌더). 빠른 확인은 좌측 ▶재생">▶ 미리보기</button>
@@ -497,7 +506,7 @@ setMode("c");   // 기본 진입 = AI 첫 컷 메이커
 let acFiles=[],acGoal="shorts",acTpl="";
 function acSeg(rowSel,attr,set){document.querySelectorAll(rowSel+" .seg-r").forEach(el=>el.onclick=()=>{
   document.querySelectorAll(rowSel+" .seg-r").forEach(x=>x.classList.remove("on"));el.classList.add("on");set(el.dataset[attr]);});}
-acSeg("#acGoal","g",v=>acGoal=v);acSeg("#acTpl","t",v=>acTpl=v);
+acSeg("#acGoal","g",v=>{acGoal=v;saveIntake();});acSeg("#acTpl","t",v=>{acTpl=v;saveIntake();});
 (async()=>{try{const vs=await(await fetch("/api/voices")).json();
   $("#acVoice").innerHTML=vs.map(v=>`<option value="${v.name}">${v.name.replace("ko-KR-","").replace("Neural","")} (${v.gender==="Female"?"여":"남"})</option>`).join("");
 }catch(e){$("#acVoice").innerHTML='<option value="ko-KR-SunHiNeural">SunHi (여)</option>';}})();
@@ -642,6 +651,7 @@ function initEditor(id,res,restore){
   A.subsOn=restore?(restore.subsOn!==false):(INTAKE.subs!==false);
   if(!restore&&INTAKE.style==="shorts"){A.style.fontSize=84;A.style.outlineW=4;A.style.bold=true;A.style.align="bottom";}
   undoStack=[];redoStack=[];
+  A._name=(restore&&restore.name)||(res&&res.filename)||"무제 작업";
   document.body.classList.add("editing");
   $("#start").classList.add("hide");$("#editorA").classList.remove("hide");
   const v=$("#srcA");v.src=`/api/media?id=${id}`;
@@ -1501,10 +1511,16 @@ function applySnap(s){const o=JSON.parse(s);A.clips=o.clips.map(c=>({id:++cid,..
   A.sel=null;A.playIdx=Math.min(A.playIdx,A.clips.length-1);renderStage();redraw();renderInspector();renderCues();}
 function undo(){if(!undoStack.length)return;redoStack.push(snap());applySnap(undoStack.pop());save();}
 function redo(){if(!redoStack.length)return;undoStack.push(snap());applySnap(redoStack.pop());save();}
-function save(){if(!A)return;try{localStorage.setItem("capcut",JSON.stringify({id:A.id,format:A.format,subsOn:A.subsOn,srcMeta:A.srcMeta,
+let _draftT=null;
+function save(){if(!A)return;const st={id:A.id,format:A.format,subsOn:A.subsOn,srcMeta:A.srcMeta,
   clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
   cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
-  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade}}));}catch(e){}}
+  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade}};
+  try{localStorage.setItem("capcut",JSON.stringify(st));}catch(e){}
+  clearTimeout(_draftT);_draftT=setTimeout(()=>serverSaveDraft(st),2500);}   // 서버 자동저장(디바운스)
+async function serverSaveDraft(st){try{await fetch("/api/draft/save",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id:st.id,name:A._name||"무제 작업",state:st})});
+  const t=$("#savedTag");if(t){t.textContent="저장됨 ✓";t.style.opacity="1";setTimeout(()=>t.style.opacity=".45",1500);}}catch(e){}}
 
 document.addEventListener("keydown",e=>{if(!A||$("#editorA").classList.contains("hide"))return;
   if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"){if(e.key==="Escape")e.target.blur();return;}
@@ -1565,6 +1581,19 @@ async function tryRestore(){const raw=localStorage.getItem("capcut");if(!raw)ret
   }catch(e){}}
 $("#resumeGo").onclick=()=>{if(!PENDING_RESTORE)return;$("#resumeBar").classList.add("hide");initEditor(PENDING_RESTORE.st.id,PENDING_RESTORE.result,PENDING_RESTORE.st);};
 $("#resumeNew").onclick=()=>{localStorage.removeItem("capcut");PENDING_RESTORE=null;$("#resumeBar").classList.add("hide");};
+// 📂 내 작업(서버 드래프트) 목록 — 어디서나 이어서
+async function loadRecent(){try{const list=await(await fetch("/api/draft/list")).json();
+  if(!list.length)return;const box=$("#recentList");box.innerHTML="";
+  list.forEach(d=>{const it=document.createElement("div");it.className="ritem";
+    const when=new Date((d.savedAt||0)*1000);const hh=isNaN(when)?"":` · ${when.getMonth()+1}/${when.getDate()}`;
+    const nm=document.createElement("span");nm.textContent="▶ "+(d.name||"무제")+hh;nm.onclick=()=>openDraft(d.id);
+    const x=document.createElement("button");x.className="rx";x.textContent="✕";
+    x.onclick=async(e)=>{e.stopPropagation();await fetch("/api/draft/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:d.id})});loadRecent();};
+    it.appendChild(nm);it.appendChild(x);box.appendChild(it);});
+  $("#recentBar").classList.remove("hide");}catch(e){}}
+async function openDraft(id){try{const d=await(await fetch("/api/draft/get?id="+id)).json();
+  const jr=await fetch("/api/job?id="+id);if(!jr.ok){alert("이 작업의 미디어가 만료됐어요.");return;}
+  initEditor(id,(await jr.json()).result,d.state||{});}catch(e){alert("불러오기 실패: "+e);}}
 
 // ===== 모드 B =====
 wireDrop($("#dropB"),$("#fileB"),files=>{imagesB=Array.from(files);$("#imgsB").textContent=`이미지 ${imagesB.length}장 선택됨`;$("#genB").disabled=imagesB.length===0;});
@@ -1579,7 +1608,17 @@ async function loadFonts(){try{FONTS=await(await fetch("/api/fonts")).json();}ca
 async function loadPresets(){try{PRESETS=await(await fetch("/api/presets")).json();}catch(e){}renderPresetChips();}
 window.addEventListener("resize",()=>{if(A){fitStage();redraw();renderStage();applySubStyle();}});
 window.addEventListener("beforeunload",e=>{if(A&&document.body.classList.contains("editing")){e.preventDefault();e.returnValue="";}});  // 실수 이탈 방지(작업은 자동저장됨)
-loadVoices();loadFonts();loadPresets();tryRestore();
+loadVoices();loadFonts();loadPresets();tryRestore();loadRecent();restoreIntake();
+// 인테이크 입력 자동저장/복원 (파일은 보안상 제외 — 설정·요청만)
+function saveIntake(){try{localStorage.setItem("oncut_intake",JSON.stringify({goal:acGoal,tpl:acTpl,
+  req:$("#acReq").value,ref:$("#acRef").value,voice:$("#acVoice").value,music:$("#acMusic").checked}));}catch(e){}}
+function restoreIntake(){try{const d=JSON.parse(localStorage.getItem("oncut_intake")||"{}");
+  if(d.req)$("#acReq").value=d.req;if(d.ref)$("#acRef").value=d.ref;if(d.music===false)$("#acMusic").checked=false;
+  if(d.goal){acGoal=d.goal;document.querySelectorAll('#acGoal .seg-r').forEach(x=>x.classList.toggle('on',x.dataset.g===d.goal));}
+  if(d.tpl!=null){acTpl=d.tpl;document.querySelectorAll('#acTpl .seg-r').forEach(x=>x.classList.toggle('on',x.dataset.t===d.tpl));}
+}catch(e){}}
+["#acReq","#acRef"].forEach(s=>{const el=$(s);if(el)el.addEventListener("input",saveIntake);});
+["#acMusic","#acVoice"].forEach(s=>{const el=$(s);if(el)el.addEventListener("change",saveIntake);});
 </script>
 </body>
 </html>
