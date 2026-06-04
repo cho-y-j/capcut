@@ -74,8 +74,10 @@ load_jobs()
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index() -> str:
-    return (STATIC / "index.html").read_text(encoding="utf-8")
+async def index() -> HTMLResponse:
+    # no-cache: 테스트 중 브라우저가 옛 index.html을 붙잡지 않도록(자동 편집기 점프 등 방지)
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 # ---------------- 모드 A ----------------
