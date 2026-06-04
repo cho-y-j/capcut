@@ -204,8 +204,8 @@ async def autocut_plan(goal: str = Form("shorts"), request: str = Form(""),
     if not saved:
         return JSONResponse({"error": "소재가 없습니다"}, status_code=400)
     plan = await asyncio.to_thread(llm.plan_project, fmt, fmt, saved, request, template, ref_url)
-    AUTOCUT_PLAN[jid] = {"fmt": fmt, "media": saved, "plan": plan}
-    return JSONResponse({"id": jid, "plan": plan,
+    AUTOCUT_PLAN[jid] = {"fmt": fmt, "media": saved, "plan": plan, "template": template}
+    return JSONResponse({"id": jid, "plan": plan, "template": template,
                          "media": [{"kind": m["kind"], "name": m["name"]} for m in saved]})
 
 
@@ -227,6 +227,9 @@ async def autocut_render(req: Request) -> JSONResponse:
         plan["grade"] = body["grade"]
     music = bool(body.get("music", plan.get("music", True)))
     voice = body.get("voice") or None
+    from . import templates as _tpl
+    tid = body.get("template") or st.get("template") or ""
+    tp = _tpl.apply(tid, load_brandkit())               # 템플릿+브랜드 → 빌드 파라미터
     AUTOCUT[jid] = {"pct": 0.0, "done": False, "res": None, "extras": None, "error": None}
 
     def _cb(p):
@@ -235,7 +238,7 @@ async def autocut_render(req: Request) -> JSONResponse:
     async def _run():
         try:
             res, extras = await asyncio.to_thread(_build_autocut, jid, st["fmt"], st["media"],
-                                                  plan, music, voice, _cb)
+                                                  plan, music, voice, _cb, tp)
             if jid in JOBS:
                 JOBS[jid]["result"] = res        # /api/job 복원용(뒤로가기/새로고침 시 살아남음)
             AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
@@ -254,17 +257,21 @@ async def autocut_status(id: str) -> JSONResponse:
     return JSONResponse(st)
 
 
-def _build_autocut(jid, fmt, media, plan, music, voice, cb):
-    """동기 빌드 — 확정된 구성안 → 이미지=모드B / 영상·혼합=멀티소스 concat → (res, extras)."""
+def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None):
+    """동기 빌드 — 확정된 구성안 + 템플릿(tp) → 이미지=모드B / 영상·혼합 → (res, extras)."""
     from . import render
     from .silence import probe_video, probe_duration
     import asyncio
     cb(0.05)
+    tp = tp or {}
     scenes = plan["scenes"]
-    grade = plan.get("grade") or {}
+    grade = tp.get("grade") or plan.get("grade") or {}     # 템플릿 룩 우선
+    tdur = float(tp.get("dur", 3.0))
+    ttrans = tp.get("transition", "dissolve")
+    tcolor = tp.get("textColor", "#ffffff")
+    tanim = tp.get("textAnim", "pop")
     w, h = _AC_DIMS.get(fmt, (1080, 1920))
     has_video = any(m["kind"] == "video" for m in media)
-    # 도입 훅 텍스트
     hook = (plan.get("hook") or "").strip()
 
     if not has_video:
@@ -301,11 +308,11 @@ def _build_autocut(jid, fmt, media, plan, music, voice, cb):
             tok = token_of[id(m)]
             if m["kind"] == "video":
                 d = probe_duration(m["path"]) if tok == "0" else sources[tok]["duration"]
-                length = max(1.5, min(float(d or 4), float(scenes[i].get("dur", 4) or 4)))
+                length = max(1.5, min(float(d or 4), float(scenes[i].get("dur") or tdur)))
                 clip = {"src": tok, "srcIn": 0.0, "srcEnd": length}
             else:
-                clip = {"src": tok, "srcIn": 0.0, "srcEnd": float(scenes[i].get("dur", 3) or 3)}
-            clip["transition"] = {"type": "none" if i == 0 else "dissolve", "dur": 0.5}
+                clip = {"src": tok, "srcIn": 0.0, "srcEnd": float(scenes[i].get("dur") or tdur)}
+            clip["transition"] = {"type": "none" if i == 0 else ttrans, "dur": 0.5}
             clips.append(clip)
         JOBS[jid] = {"mode": "a", "path": mainm["path"], "filename": "AI 첫 컷", "sources": sources}
         starts, total, _ = render.output_layout(clips)
@@ -317,26 +324,54 @@ def _build_autocut(jid, fmt, media, plan, music, voice, cb):
                 continue
             s0 = starts[i]; e0 = s0 + (c["srcEnd"] - c["srcIn"])
             texts.append({"text": t, "x": 0.5, "y": 0.82, "fontSize": 64 if fmt == "shorts" else 52,
-                          "color": "#ffffff", "outlineColor": "#000000", "outlineW": 4, "bold": True,
+                          "color": tcolor, "outlineColor": "#000000", "outlineW": 4, "bold": True,
                           "font": "Black Han Sans", "start": round(s0, 2), "end": round(e0, 2),
-                          "anim": "pop", "opacity": 1})
+                          "anim": tanim, "opacity": 1})
+        ovs = _autocut_decor(jid, tp, hook, total, w, h, fmt, texts)   # 훅+아웃트로 CTA+로고
         clip_objs = [{"srcIn": c["srcIn"], "srcEnd": c["srcEnd"], "src": c["src"],
                       "transition": c["transition"]} for c in clips]
         res = {"mode": "a", "duration": total, "w": mw, "h": mh, "fps": mfps,
                "clips": clip_objs, "cuts": [], "cues": []}
         # clips를 extras(restore.clips)로도 — initEditor가 res.clips의 src를 누락하므로 src 보존
-        extras = {"format": fmt, "grade": grade, "texts": texts, "srcMeta": srcMeta, "clips": clip_objs}
+        extras = {"format": fmt, "grade": grade, "texts": texts, "overlays": ovs,
+                  "srcMeta": srcMeta, "clips": clip_objs}
         cb(0.95)
         return res, extras
 
-    # 이미지 경로 res/extras
+    # 이미지 경로 res/extras — 자막(내레이션) 스타일은 템플릿 sub, + 훅/아웃트로/로고
     texts = []
+    total_img = float(res.get("duration", 0) or 0)
+    ovs = _autocut_decor(jid, tp, hook, total_img, w, h, fmt, texts)
+    extras = {"format": fmt, "grade": grade, "texts": texts, "overlays": ovs,
+              "style": tp.get("sub"), "srcMeta": {}}
+    return res, extras
+
+
+def _autocut_decor(jid, tp, hook, total, w, h, fmt, texts):
+    """훅(도입 큰 글자) + 아웃트로 CTA + 브랜드 로고 오버레이를 texts/overlays에 추가."""
+    tp = tp or {}
+    brand = tp.get("brand") or {}
+    big = 80 if fmt == "shorts" else 60
     if hook:
-        texts.append({"text": hook, "x": 0.5, "y": 0.18, "fontSize": 72, "color": "#ffffff",
+        texts.append({"text": hook, "x": 0.5, "y": 0.18, "fontSize": big, "color": tp.get("textColor", "#ffffff"),
                       "outlineColor": "#000000", "outlineW": 4, "bold": True, "font": "Black Han Sans",
                       "start": 0.0, "end": 2.5, "anim": "pop", "opacity": 1})
-    extras = {"format": fmt, "grade": grade, "texts": texts, "srcMeta": {}}
-    return res, extras
+    if tp.get("outro") and total > 2.2:
+        cta = (tp.get("cta") or "").strip()
+        name = (brand.get("name") or "").strip()
+        label = (name + ("  ·  " + cta if cta else "")) if name else cta
+        if label:
+            texts.append({"text": label, "x": 0.5, "y": 0.5, "fontSize": big, "color": tp.get("textColor", "#ffffff"),
+                          "outlineColor": "#000000", "outlineW": 4, "bold": True, "font": "Black Han Sans",
+                          "start": round(total - 2.2, 2), "end": round(total, 2), "anim": "pop", "opacity": 1})
+    ovs = []
+    logo = brand.get("logo")
+    if logo and Path(logo).exists():           # 브랜드 로고 → 우상단 상시 오버레이
+        tok = uuid.uuid4().hex[:8]
+        JOBS.setdefault(jid, {}).setdefault("assets", {})[tok] = logo
+        ovs.append({"token": tok, "url": f"/api/asset?id={jid}&token={tok}", "name": "logo",
+                    "x": 0.87, "y": 0.12, "scale": 0.16, "opacity": 1, "start": 0, "end": total, "fade": 0.3, "kf": []})
+    return ovs
 
 
 @app.get("/api/media")
@@ -809,6 +844,57 @@ async def fonts() -> JSONResponse:
 async def voices() -> JSONResponse:
     from . import tts
     return JSONResponse(await tts.list_korean_voices())
+
+
+# ===== 템플릿(틀) + 브랜드키트 (onimage와 공유 스키마) =====
+_BRANDKIT_FILE = config.BASE_DIR / "config" / "brandkit.json"
+
+
+def load_brandkit() -> dict:
+    try:
+        if _BRANDKIT_FILE.exists():
+            return json.loads(_BRANDKIT_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
+@app.get("/api/templates")
+async def templates_list() -> JSONResponse:
+    from . import templates
+    return JSONResponse(templates.list_public())
+
+
+@app.get("/api/brandkit")
+async def brandkit_get() -> JSONResponse:
+    bk = load_brandkit()
+    if bk.get("logo"):
+        bk = {**bk, "hasLogo": True}
+    return JSONResponse({"color": bk.get("color", ""), "name": bk.get("name", ""),
+                         "hasLogo": bool(bk.get("logo"))})
+
+
+@app.post("/api/brandkit")
+async def brandkit_save(req: Request) -> JSONResponse:
+    body = await req.json()
+    bk = load_brandkit()
+    bk["color"] = (body.get("color") or "").strip()
+    bk["name"] = (body.get("name") or "").strip()[:40]
+    _BRANDKIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _BRANDKIT_FILE.write_text(json.dumps(bk, ensure_ascii=False), encoding="utf-8")
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/brandkit/logo")
+async def brandkit_logo(file: UploadFile = File(...)) -> JSONResponse:
+    dest = config.BASE_DIR / "config" / f"brand_logo{Path(file.filename or '').suffix.lower() or '.png'}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+    bk = load_brandkit(); bk["logo"] = str(dest)
+    _BRANDKIT_FILE.write_text(json.dumps(bk, ensure_ascii=False), encoding="utf-8")
+    return JSONResponse({"ok": True})
 
 
 @app.get("/api/voice_preview")
