@@ -408,7 +408,7 @@
           <div class="layer" id="layer"><div class="ov" id="ovA"></div></div></div></div>
         <div class="pvbar">
           <button class="btn ghost sm" id="playBtn">▶ 재생</button>
-          <span class="hint">▶재생=소리·자막·텍스트·로고 <b>그대로 미리보기</b> · <span class="kbd">S</span>분할 · <span class="kbd">Del</span>삭제 · <span class="kbd">Space</span>재생</span>
+          <span class="hint">▶재생=소리·자막·텍스트·로고 <b>그대로 미리보기</b> · <span class="kbd">S</span>분할 · <span class="kbd">Del</span>삭제 · <span class="kbd">Space</span>재생 · <span class="kbd">Ctrl+V</span> <b>붙여넣기</b>(PPT·캡처 그림/글)</span>
           <div class="zoom" style="margin-left:auto">줌
             <button class="btn ghost sm" id="zoomOut">−</button>
             <button class="btn ghost sm" id="zoomIn">+</button>
@@ -1235,6 +1235,28 @@ async function addOverlayFile(f,xy){const fd=new FormData();fd.append("id",A.id)
   pushHistory();const x=xy?xy.x:0.85,y=xy?xy.y:0.85;
   A.overlays.push({id:++cid,token:j.token,url:j.url,name:j.name,x,y,scale:0.2,opacity:1,start:null,end:null,fade:0.3});
   A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();}
+// 외부 붙여넣기(Ctrl+V) — 파워포인트·PPT 슬라이드·화면캡처·브라우저에서 복사한
+// 그림을 그대로 오버레이로, 텍스트는 글상자로. (paste 이벤트는 HTTP에서도 동작)
+window.addEventListener("paste",async e=>{
+  if(!A||$("#editorA").classList.contains("hide"))return;          // 편집기 열렸을 때만
+  const ae=document.activeElement;
+  if(ae&&(ae.tagName==="INPUT"||ae.tagName==="TEXTAREA"||ae.isContentEditable))return;  // 입력칸은 기본 붙여넣기
+  const dt=e.clipboardData;if(!dt)return;
+  for(const it of dt.items){                                       // 1) 이미지(PNG/JPG 등)
+    if(it.type&&it.type.indexOf("image/")===0){const blob=it.getAsFile();
+      if(blob){e.preventDefault();
+        const ext=(blob.type.split("/")[1]||"png").replace("jpeg","jpg");
+        const file=new File([blob],"paste."+ext,{type:blob.type});
+        $("#msgA").textContent="붙여넣은 이미지 추가…";
+        await addOverlayFile(file,{x:0.5,y:0.5});
+        $("#msgA").textContent="📋 붙여넣기 완료 — 끌어서 위치·모서리로 크기·머리로 회전";return;}}}
+  const txt=dt.getData("text/plain");                              // 2) 텍스트
+  if(txt&&txt.trim()){e.preventDefault();pushHistory();const t=curOut();
+    A.texts.push({id:++cid,text:txt.trim().slice(0,200),x:0.5,y:0.5,fontSize:56,color:"#ffffff",
+      outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:t,end:t+3,anim:"pop"});
+    A.sel={type:"text",i:A.texts.length-1};renderStage();redraw();renderInspector();save();
+    $("#msgA").textContent="📋 붙여넣은 텍스트 추가";}
+});
 // 토큰(도형·이모지·로고) → 오버레이 요소로 추가
 function addTokenOverlay(token,url,name,scale){pushHistory();const t=curOut();
   A.overlays.push({id:++cid,token:token,url:url,name:name,x:0.5,y:0.5,scale:scale||0.25,opacity:1,start:t,end:t+4,fade:0,kf:[]});
