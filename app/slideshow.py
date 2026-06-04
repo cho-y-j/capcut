@@ -22,7 +22,7 @@ def _kenburns_clip(image: str, duration: float, out_path: str,
     else:
         z = "if(eq(on,1),1.18,max(1.001,zoom-0.0009))"
     vf = (
-        f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase,"
+        f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase:flags=lanczos,"
         f"crop={w*2}:{h*2},"
         f"zoompan=z='{z}':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
         f":s={w}x{h}:fps={fps},format=yuv420p"

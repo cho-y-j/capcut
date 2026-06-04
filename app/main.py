@@ -184,6 +184,7 @@ _AC_DIMS = {"shorts": (1080, 1920), "square": (1080, 1080), "wide": (1920, 1080)
 @app.post("/api/autocut")
 async def autocut(goal: str = Form("shorts"), request: str = Form(""),
                   template: str = Form(""), ref_url: str = Form(""), music: str = Form("1"),
+                  voice: str = Form(""),
                   files: List[UploadFile] = File(...)) -> JSONResponse:
     """AI 첫 컷 메이커 — 소재+목적+요청 → AI 구성안 → 1차 완성 영상(편집기로 핸드오프)."""
     import asyncio
@@ -210,7 +211,7 @@ async def autocut(goal: str = Form("shorts"), request: str = Form(""),
         try:
             from . import llm
             res, extras = await asyncio.to_thread(_build_autocut, jid, fmt, saved,
-                                                  request, template, ref_url, music != "0", _cb)
+                                                  request, template, ref_url, music != "0", voice or None, _cb)
             AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
             save_jobs()
         except Exception as e:  # noqa: BLE001
@@ -227,7 +228,7 @@ async def autocut_status(id: str) -> JSONResponse:
     return JSONResponse(st)
 
 
-def _build_autocut(jid, fmt, media, request, template, ref_url, music, cb):
+def _build_autocut(jid, fmt, media, request, template, ref_url, music, voice, cb):
     """동기 빌드 — 구성안(LLM) → 이미지=모드B / 영상·혼합=멀티소스 concat → (res, extras)."""
     from . import llm, render
     from .silence import probe_video, probe_duration
@@ -246,7 +247,7 @@ def _build_autocut(jid, fmt, media, request, template, ref_url, music, cb):
         sc = [pipeline.Scene(text=(scenes[i]["text"] or " "), image=media[i]["path"])
               for i in range(len(media))]
         out = str(config.UPLOAD_DIR / f"{jid}_autocut.mp4")
-        res = asyncio.run(pipeline.process_mode_b(sc, out, w=w, h=h, fps=30,
+        res = asyncio.run(pipeline.process_mode_b(sc, out, voice=voice, w=w, h=h, fps=30,
                                                   progress=lambda *a: cb(0.1 + 0.8 * 0.5)))
         JOBS[jid] = {"mode": "b", "path": out, "filename": "AI 첫 컷"}
         cb(0.95)
@@ -723,6 +724,20 @@ async def fonts() -> JSONResponse:
 async def voices() -> JSONResponse:
     from . import tts
     return JSONResponse(await tts.list_korean_voices())
+
+
+@app.get("/api/voice_preview")
+async def voice_preview(voice: str):
+    """성우 미리듣기 — 짧은 한국어 샘플을 합성해 mp3로 반환(캐시)."""
+    from . import tts
+    safe = "".join(c for c in voice if c.isalnum() or c in "-_") or "default"
+    out = config.UPLOAD_DIR / f"_vp_{safe}.mp3"
+    if not out.exists():
+        try:
+            await tts.synth("안녕하세요, 이 목소리로 내레이션을 만들어요.", str(out), voice=voice)
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"error": str(e)}, status_code=500)
+    return FileResponse(str(out), media_type="audio/mpeg")
 
 
 @app.post("/api/assist")
