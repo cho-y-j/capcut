@@ -132,19 +132,21 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
         font_px = max_fs * h / sh
         stroke_px = float(t.get("outlineW", 3)) * h / sh
         png = str(Path(out_path).with_suffix(f".kt{ix}.png"))
-        try:
-            pw, _ph = subtitle.text_to_png(t, font_px, stroke_px, png)
+        base_rot = float(t.get("rot", 0) or 0)
+        try:   # PNG는 항상 똑바로 래스터화 → 회전은 오버레이 필터로(정적+스핀 통일)
+            pw, _ph = subtitle.text_to_png({**t, "rot": 0}, font_px, stroke_px, png)
         except Exception:  # noqa: BLE001 — 렌더 실패하면 평문 ASS로 폴백
             plain_texts.append(t)
             continue
         base_sc = pw / w
         ov = {"path": png, "x": float(t.get("x", .5)), "y": float(t.get("y", .5)),
-              "scale": base_sc, "opacity": float(t.get("opacity", 1.0)),
+              "scale": base_sc, "rot": base_rot, "opacity": float(t.get("opacity", 1.0)),
               "start": t.get("start"), "end": t.get("end")}
         if len(kfs) >= 2:
             ov["kf"] = [{"t": float(k["t"]), "x": float(k.get("x", t.get("x", .5))),
                          "y": float(k.get("y", t.get("y", .5))),
                          "scale": base_sc * (float(k.get("fontSize", max_fs)) / max_fs),
+                         "rot": float(k.get("rot", base_rot)),
                          "opacity": float(k.get("opacity", 1))} for k in kfs]
         overlays.append(ov)
     texts = plain_texts

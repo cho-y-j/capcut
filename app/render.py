@@ -463,18 +463,30 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
             ypts = [(float(k["t"]), f"(H*{float(k.get('y', py)):.4f}-h/2)") for k in kf]
             opts_ = [(float(k["t"]), f"{max(0.0, min(1.0, float(k.get('opacity', op)))):.4f}") for k in kf]
             spts = [(float(k["t"]), f"{max(2, int(W * float(k.get('scale', bscale)))):d}") for k in kf]
+            brot = float(ov.get("rot", 0) or 0)
+            rpts = [(float(k["t"]), f"{float(k.get('rot', brot)):.3f}") for k in kf]
+            any_rot = any(abs(float(k.get("rot", brot))) > 0.1 for k in kf)
             ks, ke = xpts[0][0], xpts[-1][0]
             ws = float(s) if s is not None else ks
             we = float(e) if e is not None else ke
+            # 비정사각(세로 따로)은 회전 없을 때만(회전 키프레임과 동시엔 ffmpeg rotate가
+            # eval=frame 스케일과 충돌 → 스핀은 비율 유지). 정적 회전은 static 분기에서 처리.
+            hexpr = f"{max(2, int(H * float(ov['scaleH'])))}" if (ov.get("scaleH") and not any_rot) else "-2"
             chain = (f"[{idx}:v]format=rgba,"
                      f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')})',"
-                     f"scale=w='{_pw_expr(spts, 't')}':h=-2:eval=frame")
+                     f"scale=w='{_pw_expr(spts, 't')}':h={hexpr}:eval=frame")
+            if any_rot:                       # 회전 키프레임(스핀): 각도 시간식(콤마 보호 위해 따옴표)
+                ra = f"(({_pw_expr(rpts, 't')})*PI/180)"
+                # ow/oh는 각도와 무관한 상수 대각선(hypot)으로 — rotw/roth는 init에서 a=0로 고정
+                # 평가돼 스핀 중 모서리가 잘림(팔각형). hypot는 어느 각도든 안 잘림.
+                chain += f",rotate=a='{ra}':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=none"
             P.append(f"{chain}[ov{i}]")
             en = f":enable='between(t,{ws:.3f},{we:.3f})'"
             P.append(f"[{cur}][ov{i}]overlay=x='{_pw_expr(xpts, 't')}':y='{_pw_expr(ypts, 't')}'{en}[{nb}]")
             cur = nb
             continue
-        chain = f"[{idx}:v]scale={ow}:-1,format=rgba,colorchannelmixer=aa={op:.3f}"
+        oh = int(H * float(ov["scaleH"])) if ov.get("scaleH") else -1   # 비정사각(세로 따로)
+        chain = f"[{idx}:v]scale={ow}:{oh},format=rgba,colorchannelmixer=aa={op:.3f}"
         en = ""
         if s is not None and e is not None:
             s, e = float(s), float(e)
@@ -484,6 +496,10 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
                           f",fade=t=out:st={max(s, e - fd):.3f}:d={fd:.3f}:alpha=1")
             else:
                 en = f":enable='between(t,{s:.3f},{e:.3f})'"
+        rot = float(ov.get("rot", 0) or 0)
+        if abs(rot) > 0.1:                   # 회전(투명 유지, 박스 확장)
+            a = f"{rot * 3.14159265 / 180:.5f}"
+            chain += f",rotate={a}:ow=rotw({a}):oh=roth({a}):c=none"
         P.append(f"{chain}[ov{i}]")
         P.append(f"[{cur}][ov{i}]overlay=x=W*{px}-w/2:y=H*{py}-h/2{en}[{nb}]")
         cur = nb

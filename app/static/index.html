@@ -162,6 +162,8 @@
   .el img{display:block;width:100%;height:auto;-webkit-user-drag:none;pointer-events:none}
   .el .txt{white-space:pre;line-height:1.25;font-weight:700}
   .el .rs{position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--accent);border:1px solid #04130a;border-radius:3px;cursor:nwse-resize}
+  .el .rh{position:absolute;left:50%;top:-26px;width:14px;height:14px;margin-left:-7px;background:#fff;border:2px solid var(--accent);border-radius:50%;cursor:grab}
+  .el .rh:before{content:"";position:absolute;left:50%;top:14px;width:2px;height:12px;background:var(--accent);transform:translateX(-50%)}
 
   .hint{font-size:11px;color:var(--dim)}
   .kbd{border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--txt)}
@@ -906,10 +908,10 @@ function subDrag(e){e.preventDefault();e.stopPropagation();pushHistory();const v
 function activeAt(o,t){return (o.start==null||t>=o.start-0.001)&&(o.end==null||t<o.end);}
 // 키프레임 모션 — 시각마다 위치·투명도를 찍어 그 사이를 선형보간(추출과 동일)
 function kfAt(o,t){const k=o.kf;if(!k||k.length<2)return null;const ks=[...k].sort((a,b)=>a.t-b.t);
-  const sc=v=>v.scale!=null?v.scale:o.scale,fz=v=>v.fontSize!=null?v.fontSize:o.fontSize,op=v=>v.opacity!=null?v.opacity:1;
-  const at=v=>({x:v.x,y:v.y,opacity:op(v),scale:sc(v),fontSize:fz(v)});
+  const sc=v=>v.scale!=null?v.scale:o.scale,fz=v=>v.fontSize!=null?v.fontSize:o.fontSize,op=v=>v.opacity!=null?v.opacity:1,rt=v=>v.rot!=null?v.rot:(o.rot||0);
+  const at=v=>({x:v.x,y:v.y,opacity:op(v),scale:sc(v),fontSize:fz(v),rot:rt(v)});
   const lerp=(a,b,f)=>({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,opacity:op(a)+(op(b)-op(a))*f,
-    scale:sc(a)+(sc(b)-sc(a))*f,fontSize:fz(a)+(fz(b)-fz(a))*f});
+    scale:sc(a)+(sc(b)-sc(a))*f,fontSize:fz(a)+(fz(b)-fz(a))*f,rot:rt(a)+(rt(b)-rt(a))*f});
   if(t<=ks[0].t)return at(ks[0]);
   if(t>=ks[ks.length-1].t)return at(ks[ks.length-1]);
   for(let i=1;i<ks.length;i++)if(t<=ks[i].t)return lerp(ks[i-1],ks[i],(t-ks[i-1].t)/((ks[i].t-ks[i-1].t)||1));
@@ -923,9 +925,15 @@ function applyKfPreset(o,preset,sizeKey){
   else if(preset==="zoomout")o.kf=[P(s,{[sizeKey]:base*1.4}),P(e,{[sizeKey]:base})];
   else if(preset==="fadein"){const m=Math.min(e,s+0.6);o.kf=[P(s,{opacity:0}),P(m,{opacity:1}),P(e,{opacity:1})];}
   else if(preset==="fadeout"){const m=Math.max(s,e-0.6);o.kf=[P(s,{opacity:1}),P(m,{opacity:1}),P(e,{opacity:0})];}
+  else if(preset==="spin")o.kf=[P(s,{rot:0}),P(e,{rot:360})];                       // 시작→끝 한바퀴 회전
+  else if(preset==="spinhalf")o.kf=[P(s,{rot:0}),P(e,{rot:180})];
+  else if(preset==="blink"){o.kf=[];const n=Math.max(2,Math.round((e-s)/0.4));       // 반짝임(깜빡깜빡)
+    for(let j=0;j<=n;j++)o.kf.push(P(s+(e-s)*j/n,{opacity:j%2?0.15:1}));}
+  else if(preset==="pulse"){o.kf=[];const n=Math.max(2,Math.round((e-s)/0.5));       // 두근두근(크기 박동)
+    for(let j=0;j<=n;j++)o.kf.push(P(s+(e-s)*j/n,{[sizeKey]:base*(j%2?1.25:1)}));}
   else if(preset==="clear")o.kf=[];}
 function upsertKf(o,t,vals){if(!o.kf)o.kf=[];const i=o.kf.findIndex(k=>Math.abs(k.t-t)<0.05);
-  if(i>=0)o.kf[i]={...o.kf[i],...vals,t};else o.kf.push({t,x:o.x,y:o.y,opacity:o.opacity!=null?o.opacity:1,scale:o.scale,fontSize:o.fontSize,...vals});
+  if(i>=0)o.kf[i]={...o.kf[i],...vals,t};else o.kf.push({t,x:o.x,y:o.y,opacity:o.opacity!=null?o.opacity:1,scale:o.scale,fontSize:o.fontSize,rot:o.rot||0,...vals});
   o.kf.sort((a,b)=>a.t-b.t);}
 function applyTextAnim(d,el,tx,t){const an=tx.anim;if(!an||an==="none")return;
   const s=tx.start!=null?tx.start:0,e=tx.end!=null?tx.end:t+3,dur=Math.max(0.2,e-s),el0=Math.max(0,t-s);
@@ -939,7 +947,7 @@ function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
   layer.querySelectorAll(".el").forEach(e=>e.remove());
   A.texts.forEach((tx,i)=>{const sel=A.sel&&A.sel.type==="text"&&A.sel.i===i;
     if(!activeAt(tx,t)&&!(sel&&!A.playing))return;  // 재생 중엔 시간 지나면 사라짐(멈춤+선택시만 편집용 표시)
-    const tkv=kfAt(tx,t);if(tkv){tx.x=tkv.x;tx.y=tkv.y;if(tkv.fontSize!=null)tx.fontSize=tkv.fontSize;tx.opacity=tkv.opacity;}  // 텍스트 키프레임 동기화
+    const tkv=kfAt(tx,t);if(tkv){tx.x=tkv.x;tx.y=tkv.y;if(tkv.fontSize!=null)tx.fontSize=tkv.fontSize;tx.opacity=tkv.opacity;if(tkv.rot!=null)tx.rot=tkv.rot;}  // 텍스트 키프레임 동기화(회전 포함)
     const el=mkEl("text",i,tx.x,tx.y);
     if(tx.rot)el.style.transform="translate(-50%,-50%) rotate("+tx.rot+"deg)";   // 텍스트 회전
     const d=document.createElement("div");d.className="txt";d.textContent=tx.text||"텍스트";
@@ -956,17 +964,21 @@ function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
     layer.appendChild(el);});
   A.overlays.forEach((o,i)=>{const sel=A.sel&&A.sel.type==="overlay"&&A.sel.i===i;
     if(!activeAt(o,t)&&!(sel&&!A.playing))return;  // 재생 중엔 시간 지나면 사라짐
-    const kv=kfAt(o,t);if(kv){o.x=kv.x;o.y=kv.y;o.opacity=kv.opacity;if(kv.scale!=null)o.scale=kv.scale;}  // 키프레임 → 현재 시각값 동기화(위치·크기·투명도)
+    const kv=kfAt(o,t);if(kv){o.x=kv.x;o.y=kv.y;o.opacity=kv.opacity;if(kv.scale!=null)o.scale=kv.scale;if(kv.rot!=null)o.rotLive=kv.rot;}  // 키프레임 → 현재 시각값 동기화(위치·크기·투명도·회전)
+    const rot=kv?(kv.rot||0):(o.rot||0);
     const el=mkEl("overlay",i,o.x,o.y);el.style.width=(o.scale*box.w)+"px";
+    if(o.scaleH)el.style.height=(o.scaleH*box.h)+"px";   // 비정사각(세로 따로)
+    el.style.transform="translate(-50%,-50%) rotate("+rot+"deg)";   // 회전(정적+스핀 키프레임)
     el.style.opacity=activeAt(o,t)?o.opacity:0.4;
-    const img=document.createElement("img");img.src=o.url;el.appendChild(img);layer.appendChild(el);});
+    const img=document.createElement("img");img.src=o.url;if(o.scaleH){img.style.width="100%";img.style.height="100%";}el.appendChild(img);layer.appendChild(el);});
 }
 function mkEl(type,i,x,y){const el=document.createElement("div");
   const sel=A.sel&&A.sel.type===type&&A.sel.i===i;el.className="el"+(sel?" sel":"");
   const box=stageBox();el.style.left=(x*box.w)+"px";el.style.top=(y*box.h)+"px";
   el.onpointerdown=e=>elDrag(e,type,i);
   el.oncontextmenu=e=>elCtxMenu(e,type,i);
-  if(sel){const rs=document.createElement("div");rs.className="rs";rs.onpointerdown=e=>elResize(e,type,i);el.appendChild(rs);}
+  if(sel){const rs=document.createElement("div");rs.className="rs";rs.onpointerdown=e=>elResize(e,type,i);el.appendChild(rs);
+    const rh=document.createElement("div");rh.className="rh";rh.title="돌리기";rh.onpointerdown=e=>elRotate(e,type,i);el.appendChild(rh);}
   return el;}
 function elDrag(e,type,i){e.preventDefault();e.stopPropagation();select(type,i);
   if(e.target.classList.contains("rs"))return;pushHistory();
@@ -977,13 +989,22 @@ function elDrag(e,type,i){e.preventDefault();e.stopPropagation();select(type,i);
   const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);if(kfed)renderInspector();save();};
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
 function elResize(e,type,i){e.preventDefault();e.stopPropagation();pushHistory();
-  const box=stageBox(),startX=e.clientX,o=(type==="text"?A.texts:A.overlays)[i];
-  const base=type==="text"?o.fontSize:o.scale;const kfed=o.kf&&o.kf.length;
-  const mv=ev=>{const dx=(ev.clientX-startX);
+  const box=stageBox(),startX=e.clientX,startY=e.clientY,o=(type==="text"?A.texts:A.overlays)[i];
+  const base=type==="text"?o.fontSize:o.scale,baseH=(o.scaleH!=null?o.scaleH:o.scale*box.w/box.h);const kfed=o.kf&&o.kf.length;
+  const mv=ev=>{const dx=(ev.clientX-startX),dy=(ev.clientY-startY);
     if(type==="text"){o.fontSize=Math.max(12,Math.round(base+dx*(A.h||720)/box.h));if(kfed)upsertKf(o,curOut(),{fontSize:o.fontSize});}
-    else{o.scale=Math.max(.03,Math.min(1,base+dx/box.w));if(kfed)upsertKf(o,curOut(),{scale:o.scale});}
+    else{o.scale=Math.max(.03,Math.min(2,base+dx/box.w));        // 가로=드래그X, 세로=드래그Y → 자유 비율
+      o.scaleH=Math.max(.03,Math.min(2,baseH+dy/box.h));if(kfed)upsertKf(o,curOut(),{scale:o.scale});}
     renderStage();if(kfed)redraw();renderInspector();};
   const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);save();};
+  document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
+function elRotate(e,type,i){e.preventDefault();e.stopPropagation();select(type,i);pushHistory();
+  const v=$("#srcA"),r=v.getBoundingClientRect(),o=(type==="text"?A.texts:A.overlays)[i];
+  const cx=r.left+o.x*r.width,cy=r.top+o.y*r.height,kfed=o.kf&&o.kf.length;
+  const mv=ev=>{let deg=Math.atan2(ev.clientY-cy,ev.clientX-cx)*180/Math.PI+90;   // 위쪽=0°
+    deg=Math.round(deg);if(ev.shiftKey)deg=Math.round(deg/15)*15;                  // Shift=15° 스냅
+    o.rot=deg;if(kfed)upsertKf(o,curOut(),{rot:deg});renderStage();if(kfed)redraw();renderInspector();};
+  const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);renderInspector();save();};
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
 
 // ===== 우클릭 컨텍스트 메뉴 =====
@@ -1477,9 +1498,11 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
       <div class="seg" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
         <h3>◆ 키프레임 모션 <span class="num" style="color:var(--dim)">${(t.kf||[]).length}개</span></h3>
         <div class="hint" style="margin-bottom:4px">원클릭 — 시작~끝 자동:</div>
-        <div class="row" style="gap:5px;margin-bottom:6px" id="fT_kp">
+        <div class="row" style="gap:5px;margin-bottom:6px;flex-wrap:wrap" id="fT_kp">
           <button class="chip-btn" data-kp="zoomin">⤢ 줌인</button><button class="chip-btn" data-kp="zoomout">⤡ 줌아웃</button>
-          <button class="chip-btn" data-kp="fadein">🌗 페이드인</button><button class="chip-btn" data-kp="fadeout">🌒 페이드아웃</button></div>
+          <button class="chip-btn" data-kp="fadein">🌗 페이드인</button><button class="chip-btn" data-kp="fadeout">🌒 페이드아웃</button>
+          <button class="chip-btn" data-kp="spin">🔄 회전</button><button class="chip-btn" data-kp="spinhalf">↻ 반바퀴</button>
+          <button class="chip-btn" data-kp="blink">✨ 반짝임</button><button class="chip-btn" data-kp="pulse">💓 두근</button></div>
         <div class="row"><button class="btn sm" id="fT_kfadd">◆ 직접 찍기</button>
           <button class="btn ghost sm" id="fT_kfclr" ${(t.kf||[]).length?'':'disabled'}>지우기</button></div>
         <div class="hint" style="margin-top:4px">프리셋은 자동, 직접 찍기는 재생위치 옮겨 두 번+ (끌기=위치·모서리=크기).</div>
@@ -1510,9 +1533,12 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
     $("#fT_del").onclick=()=>{pushHistory();A.texts.splice(sel.i,1);deselect();save();};
   }else if(sel.type==="overlay"){const o=A.overlays[sel.i];if(!o){deselect();return;}
     b.innerHTML=`<h3>로고·이미지</h3>
-      ${fldRange("크기","fO_scale",3,100,1,Math.round(o.scale*100))}
+      ${fldRange("가로크기","fO_scale",3,200,1,Math.round(o.scale*100))}
+      ${fldRange("세로크기","fO_scaleH",3,200,1,Math.round((o.scaleH!=null?o.scaleH:o.scale)*100))}
+      ${fldRange("회전°","fO_rot",-180,180,1,Math.round(o.rot||0))}
       ${fldRange("투명도","fO_op",10,100,5,Math.round(o.opacity*100))}
       ${fldRange("페이드","fO_fade",0,1.5,.1,o.fade||0)}
+      <div class="row" style="gap:5px"><button class="btn ghost sm" id="fO_aspect">⬜ 비율 리셋</button></div>
       <div class="fld"><label>코너</label>
         <button class="chip-btn" data-c="lt">↖</button><button class="chip-btn" data-c="rt">↗</button>
         <button class="chip-btn" data-c="lb">↙</button><button class="chip-btn" data-c="rb">↘</button></div>
@@ -1520,9 +1546,11 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
       <div class="seg" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
         <h3>◆ 키프레임 모션 <span class="num" style="color:var(--dim)">${(o.kf||[]).length}개</span></h3>
         <div class="hint" style="margin-bottom:4px">원클릭 — 시작~끝 자동:</div>
-        <div class="row" style="gap:5px;margin-bottom:6px" id="fO_kp">
+        <div class="row" style="gap:5px;margin-bottom:6px;flex-wrap:wrap" id="fO_kp">
           <button class="chip-btn" data-kp="zoomin">⤢ 줌인</button><button class="chip-btn" data-kp="zoomout">⤡ 줌아웃</button>
-          <button class="chip-btn" data-kp="fadein">🌗 페이드인</button><button class="chip-btn" data-kp="fadeout">🌒 페이드아웃</button></div>
+          <button class="chip-btn" data-kp="fadein">🌗 페이드인</button><button class="chip-btn" data-kp="fadeout">🌒 페이드아웃</button>
+          <button class="chip-btn" data-kp="spin">🔄 회전</button><button class="chip-btn" data-kp="spinhalf">↻ 반바퀴</button>
+          <button class="chip-btn" data-kp="blink">✨ 반짝임</button><button class="chip-btn" data-kp="pulse">💓 두근</button></div>
         <div class="row"><button class="btn sm" id="fO_kfadd">◆ 직접 찍기</button>
           <button class="btn ghost sm" id="fO_kfclr" ${(o.kf||[]).length?'':'disabled'}>지우기</button></div>
         <div class="hint" style="margin-top:4px">재생위치를 옮겨 ◆ 두 번 이상 찍으면 그 사이를 부드럽게 이동(위치·크기·투명도). 키프레임이 있으면 영상 위에서 끌면 위치, 모서리로 크기, 슬라이더로 투명도가 그 시각 키프레임으로 기록됨.</div>
@@ -1530,6 +1558,9 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
       <button class="btn ghost sm" id="fO_del" style="margin-top:8px">삭제</button>`;
     const kfd=()=>o.kf&&o.kf.length;
     $("#fO_scale").oninput=e=>{o.scale=(+e.target.value)/100;if(kfd())upsertKf(o,curOut(),{scale:o.scale});renderStage();if(kfd())redraw();};$("#fO_scale").onchange=()=>{pushHistory();save();};
+    $("#fO_scaleH").oninput=e=>{o.scaleH=(+e.target.value)/100;renderStage();};$("#fO_scaleH").onchange=()=>{pushHistory();save();};
+    $("#fO_rot").oninput=e=>{o.rot=+e.target.value;if(kfd())upsertKf(o,curOut(),{rot:o.rot});renderStage();if(kfd())redraw();};$("#fO_rot").onchange=()=>{pushHistory();save();};
+    $("#fO_aspect").onclick=()=>{pushHistory();o.scaleH=null;o.rot=0;renderStage();renderInspector();save();};
     $("#fO_op").oninput=e=>{o.opacity=(+e.target.value)/100;if(kfd())upsertKf(o,curOut(),{opacity:o.opacity});renderStage();if(kfd())redraw();};$("#fO_op").onchange=()=>{pushHistory();save();};
     $("#fO_fade").oninput=e=>{o.fade=+e.target.value;};$("#fO_fade").onchange=()=>{pushHistory();save();};
     b.querySelectorAll("[data-c]").forEach(btn=>btn.onclick=()=>{pushHistory();const c=btn.dataset.c;o.x=c[0]==="l"?.13:.87;o.y=c[1]==="t"?.12:.88;if(kfd())upsertKf(o,curOut(),{x:o.x,y:o.y});renderStage();redraw();save();});
@@ -1718,7 +1749,7 @@ $("#tlScroll").addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();set
 function payload(){return{id:A.id,clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:c.transition})),
   subtitles:A.subsOn!==false,format:A.format||"wide",cues:A.cues,style:A.style,
   bgm:A.bgm.enabled,bgmOpts:{volume:A.bgm.volume,fadeIn:A.bgm.fadeIn,fadeOut:A.bgm.fadeOut},
-  overlays:A.overlays.map(o=>({token:o.token,preset:o.preset,x:o.x,y:o.y,scale:o.scale,opacity:o.opacity,start:o.start,end:o.end,fade:o.fade,kf:o.kf||[]})),
+  overlays:A.overlays.map(o=>({token:o.token,preset:o.preset,x:o.x,y:o.y,scale:o.scale,scaleH:o.scaleH||null,rot:o.rot||0,opacity:o.opacity,start:o.start,end:o.end,fade:o.fade,kf:o.kf||[]})),
   sfx:A.sfx.map(s=>({token:s.token,preset:s.preset,at:s.at,volume:s.volume})),
   audios:A.audios.map(a=>({token:a.token,at:a.at,in:a.in,dur:a.dur,volume:a.volume,fadeIn:a.fadeIn,fadeOut:a.fadeOut})),
   pips:A.pips.map(p=>({src:p.src,x:p.x,y:p.y,scale:p.scale,opacity:p.opacity,start:p.start,end:p.end,in:p.in,volume:p.volume,kf:p.kf||[],chromaKey:p.chromaKey||null,chromaSim:p.chromaSim||0.3,mask:p.mask||null})),
