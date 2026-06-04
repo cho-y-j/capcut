@@ -16,6 +16,24 @@ from .silence import Segment
 ProgressCB = Optional[Callable[[float], None]]   # 0.0~1.0
 
 
+def _grade_filter(g: dict | None) -> str:
+    """색보정 dict → ffmpeg 필터(footage용). neutral이면 빈 문자열.
+
+    brightness/contrast/saturation은 CSS filter와 동일 모델(1.0=중립)이라 미리보기와
+    일치. warmth(-1~1)는 colorbalance로 따뜻/차갑게(미리보기는 틴트로 근사).
+    """
+    if not g:
+        return ""
+    b = float(g.get("brightness", 1)); c = float(g.get("contrast", 1))
+    s = float(g.get("saturation", 1)); w = float(g.get("warmth", 0))
+    parts = []
+    if abs(b - 1) > 1e-3 or abs(c - 1) > 1e-3 or abs(s - 1) > 1e-3:
+        parts.append(f"eq=brightness={(b - 1):.3f}:contrast={c:.3f}:saturation={s:.3f}")
+    if abs(w) > 1e-3:                       # 따뜻=R↑·B↓, 차갑=반대 (CSS 틴트로 근사)
+        parts.append(f"colorchannelmixer=rr={1 + 0.2 * w:.3f}:bb={1 - 0.2 * w:.3f}")
+    return ",".join(parts)
+
+
 def _pw_expr(points, var: str) -> str:
     """키프레임 점들 → 구간별 선형보간 ffmpeg 식. points=[(t, 값식문자열)].
 
@@ -117,6 +135,7 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
                     bgm: str | None = None, bgm_volume: float = 0.16,
                     bgm_fade_in: float = 0.0, bgm_fade_out: float = 0.0,
                     canvas: tuple | None = None, sources: dict | None = None,
+                    grade: dict | None = None,
                     scale_h: int | None = None, preset: str | None = None,
                     crf: str | None = None, progress: ProgressCB = None) -> str:
     """클립(여러 소스: 영상/이미지)을 순서대로(+트랜지션) 이어붙여 MP4 생성.
@@ -235,6 +254,9 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
         inter = "".join(f"[v{i}][a{i}]" for i in range(len(norm)))
         P.append(f"{inter}concat=n={len(norm)}:v=1:a=1[vc][ac]")
         cur = "vc"
+        gf = _grade_filter(grade)
+        if gf:
+            P.append(f"[{cur}]{gf}[vgrade]"); cur = "vgrade"
         if scale_h:
             P.append(f"[vc]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
             cur = "vsc"
@@ -269,6 +291,9 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
             acc += norm[i]["dur"]
         cv = nv
     cur = cv
+    gf = _grade_filter(grade)
+    if gf:
+        Pv.append(f"[{cur}]{gf}[vgrade]"); cur = "vgrade"
     if scale_h:
         Pv.append(f"[{cur}]scale=-2:{int(scale_h)}:flags=fast_bilinear[vsc]")
         cur = "vsc"

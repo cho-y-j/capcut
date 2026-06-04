@@ -268,6 +268,7 @@
         <div class="stagewrap"><div class="stage"><video id="srcA"></video>
           <img id="still" class="hide" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
           <div class="layer" id="piplayer" style="pointer-events:none"></div>
+          <div class="layer" id="gradetint" style="pointer-events:none;mix-blend-mode:overlay;background:transparent"></div>
           <div class="layer" id="layer"><div class="ov" id="ovA"></div></div></div></div>
         <div class="pvbar">
           <button class="btn ghost sm" id="playBtn">▶ 재생</button>
@@ -296,6 +297,7 @@
           <button class="btn add sm" id="addSfx">🔔 효과음 파일</button>
           <button class="btn add sm" id="addAudio">🎶 오디오(mp3)</button>
           <button class="btn add sm" id="addMusic">🎵 배경음악</button>
+          <button class="btn add sm" id="addGrade">🎨 색보정·필터</button>
           <button class="btn add sm" id="addCut">✂️ 자르기</button>
         </div>
         <div class="chips" id="presetChips"></div>
@@ -424,7 +426,7 @@ function initEditor(id,res,restore){
   A={id,res,duration:res.duration,w:res.w||1280,h:res.h||720,clips:baseClips,
      cues:res.cues.map(c=>({...c})),style:{...DEF_STYLE},
      bgm:{enabled:false,volume:0.16,fadeIn:0,fadeOut:0},
-     overlays:[],texts:[],sfx:[],audios:[],pips:[],sel:null,srcMeta:{},curSrc:"0",
+     overlays:[],texts:[],sfx:[],audios:[],pips:[],grade:{brightness:1,contrast:1,saturation:1,warmth:0},sel:null,srcMeta:{},curSrc:"0",
      pxPerSec:Math.max(8,Math.min(80,820/(res.duration||10))),playIdx:0,playing:false};
   if(restore){
     if(restore.srcMeta)A.srcMeta=restore.srcMeta;
@@ -436,6 +438,7 @@ function initEditor(id,res,restore){
     if(restore.sfx)A.sfx=restore.sfx.map(o=>({id:++cid,...o}));
     if(restore.audios)A.audios=restore.audios.map(o=>({id:++cid,...o}));
     if(restore.pips)A.pips=restore.pips.map(o=>({id:++cid,...o}));
+    if(restore.grade)A.grade={...A.grade,...restore.grade};
     if(restore.cu)A.cues.forEach((c,i)=>{if(restore.cu[i]!=null)c.text=restore.cu[i];});
   }
   A.format=(restore&&restore.format)||INTAKE.format||"wide";
@@ -735,7 +738,7 @@ function redraw(){if(!A)return;const {starts,total,dv}=layout();
   // 텍스트/오버레이/효과음/BGM
   drawElLane("#laneT","text",A.texts);
   drawElLane("#laneO","ov",A.overlays);
-  drawSfx();drawBgm();drawAudios();drawPips();renderPips();
+  drawSfx();drawBgm();drawAudios();drawPips();renderPips();applyGradeCss();
   $("#laneHT").style.opacity=A.texts.length?1:.4;$("#laneHO").style.opacity=A.overlays.length?1:.4;
   $("#laneHF").style.opacity=A.sfx.length?1:.4;$("#laneHA").style.opacity=A.bgm.enabled?1:.4;
   $("#laneHU").style.opacity=A.audios.length?1:.4;$("#laneHP").style.opacity=A.pips.length?1:.4;
@@ -877,6 +880,20 @@ $("#addMusic").onclick=()=>$("#bgmFile").click();
 $("#bgmFile").onchange=async()=>{const f=$("#bgmFile").files[0];if(!f)return;const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   const j=await(await fetch("/api/bgm",{method:"POST",body:fd})).json();A.bgm.file=f.name;A.bgm.url=j.url||null;A.bgm.enabled=true;select("bgm",0);redraw();save();$("#msgA").textContent="배경음악: "+f.name;};
 $("#addCut").onclick=()=>splitAt();
+// 색보정·필터
+const GRADE_PRESETS=[["원본",{brightness:1,contrast:1,saturation:1,warmth:0}],
+  ["선명",{brightness:1.03,contrast:1.12,saturation:1.35,warmth:0.1}],
+  ["흑백",{brightness:1,contrast:1.06,saturation:0,warmth:0}],
+  ["따뜻필름",{brightness:1.02,contrast:1.05,saturation:1.1,warmth:0.5}],
+  ["시원",{brightness:1,contrast:1.05,saturation:1.05,warmth:-0.5}],
+  ["빈티지",{brightness:1.05,contrast:0.9,saturation:0.72,warmth:0.32}]];
+function applyGradeCss(){if(!A)return;const g=A.grade||{};
+  const f=`brightness(${g.brightness??1}) contrast(${g.contrast??1}) saturate(${g.saturation??1})`;
+  const sv=$("#srcA");if(sv)sv.style.filter=f;const st=$("#still");if(st)st.style.filter=f;
+  document.querySelectorAll("#piplayer video").forEach(v=>v.style.filter=f);
+  const w=g.warmth||0,tint=$("#gradetint");
+  if(tint)tint.style.background=Math.abs(w)<0.01?"transparent":(w>0?`rgba(255,150,50,${(0.22*w).toFixed(3)})`:`rgba(60,150,255,${(0.22*-w).toFixed(3)})`);}
+$("#addGrade").onclick=()=>{A.sel={type:"grade"};renderStage();redraw();renderInspector();};
 // 클립 이어붙이기 (영상/사진)
 $("#addClipVid").onclick=()=>$("#clipVidFile").click();
 $("#clipVidFile").onchange=async()=>{const f=$("#clipVidFile").files[0];if(!f)return;
@@ -1109,6 +1126,23 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
     $("#fP_e").onchange=e=>{pushHistory();const v=parseFloat(e.target.value);if(!isNaN(v)){p.end=Math.max(p.start+0.2,Math.min(p.start+((p.srcDur||v)-(p.in||0)),v));redraw();renderInspector();save();}};
     $("#fP_in").onchange=e=>{pushHistory();const v=parseFloat(e.target.value);if(!isNaN(v)){p.in=Math.max(0,Math.min((p.srcDur||0)-0.2,v));redraw();renderInspector();save();}};
     $("#fP_del").onclick=()=>{pushHistory();A.pips.splice(sel.i,1);deselect();save();};
+  }else if(sel.type==="grade"){const g=A.grade;
+    b.innerHTML=`<h3>🎨 색보정·필터 <span class="hint">(영상 전체)</span></h3>
+      <div class="chips" id="gPresets"></div>
+      ${fldRange("밝기","fG_b",50,160,1,Math.round(g.brightness*100))}
+      ${fldRange("대비","fG_c",50,180,1,Math.round(g.contrast*100))}
+      ${fldRange("채도","fG_s",0,200,1,Math.round(g.saturation*100))}
+      ${fldRange("색온도(따뜻↔차갑)","fG_w",-100,100,1,Math.round((g.warmth||0)*100))}
+      <div class="row" style="margin-top:8px"><button class="btn ghost sm" id="fG_reset">원래대로</button><button class="btn ghost sm" id="fG_close">닫기</button></div>
+      <div class="hint" style="margin-top:4px">미리보기는 영상 위에 즉시 반영(색온도는 근사). 추출 시 정확 적용.</div>`;
+    const pc=$("#gPresets");GRADE_PRESETS.forEach(([nm,v])=>{const bt=document.createElement("button");bt.className="chip-btn";bt.textContent=nm;
+      bt.onclick=()=>{pushHistory();A.grade={...v};applyGradeCss();renderInspector();save();};pc.appendChild(bt);});
+    $("#fG_b").oninput=e=>{g.brightness=(+e.target.value)/100;applyGradeCss();};$("#fG_b").onchange=()=>{pushHistory();save();};
+    $("#fG_c").oninput=e=>{g.contrast=(+e.target.value)/100;applyGradeCss();};$("#fG_c").onchange=()=>{pushHistory();save();};
+    $("#fG_s").oninput=e=>{g.saturation=(+e.target.value)/100;applyGradeCss();};$("#fG_s").onchange=()=>{pushHistory();save();};
+    $("#fG_w").oninput=e=>{g.warmth=(+e.target.value)/100;applyGradeCss();};$("#fG_w").onchange=()=>{pushHistory();save();};
+    $("#fG_reset").onclick=()=>{pushHistory();A.grade={brightness:1,contrast:1,saturation:1,warmth:0};applyGradeCss();renderInspector();save();};
+    $("#fG_close").onclick=()=>deselect();
   }else if(sel.type==="bgm"){
     b.innerHTML=`<h3>배경음악</h3><div class="hint">${A.bgm.file||""}</div>${fldRange("음량","fB_vol",0,60,2,Math.round(A.bgm.volume*100))}${fldRange("페이드","fB_fade",0,4,.5,A.bgm.fadeIn)}<button class="btn ghost sm" id="fB_del">제거</button>`;
     $("#fB_vol").oninput=e=>{A.bgm.volume=(+e.target.value)/100;redraw();};$("#fB_vol").onchange=()=>{pushHistory();save();};
@@ -1162,20 +1196,21 @@ function seekOut2cue(c){const {starts}=layout();for(let i=0;i<A.clips.length;i++
 // ===== 히스토리/저장 =====
 function snap(){return JSON.stringify({clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
   cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
-  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o}))});}
+  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade}});}
 function pushHistory(){undoStack.push(snap());if(undoStack.length>80)undoStack.shift();redoStack=[];}
 function applySnap(s){const o=JSON.parse(s);A.clips=o.clips.map(c=>({id:++cid,...c}));
   A.cues.forEach((c,i)=>{if(o.cu[i]!=null)c.text=o.cu[i];});A.style={...DEF_STYLE,...o.style};A.bgm={...A.bgm,...o.bgm};
   A.overlays=(o.overlays||[]).map(x=>({id:++cid,...x}));A.texts=(o.texts||[]).map(x=>({id:++cid,...x}));A.sfx=(o.sfx||[]).map(x=>({id:++cid,...x}));
   A.audios=(o.audios||[]).map(x=>({id:++cid,...x}));
   A.pips=(o.pips||[]).map(x=>({id:++cid,...x}));
+  if(o.grade)A.grade={brightness:1,contrast:1,saturation:1,warmth:0,...o.grade};
   A.sel=null;A.playIdx=Math.min(A.playIdx,A.clips.length-1);renderStage();redraw();renderInspector();renderCues();}
 function undo(){if(!undoStack.length)return;redoStack.push(snap());applySnap(undoStack.pop());save();}
 function redo(){if(!redoStack.length)return;undoStack.push(snap());applySnap(redoStack.pop());save();}
 function save(){if(!A)return;try{localStorage.setItem("capcut",JSON.stringify({id:A.id,format:A.format,subsOn:A.subsOn,srcMeta:A.srcMeta,
   clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
   cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
-  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o}))}));}catch(e){}}
+  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade}}));}catch(e){}}
 
 document.addEventListener("keydown",e=>{if(!A||$("#editorA").classList.contains("hide"))return;
   if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"){if(e.key==="Escape")e.target.blur();return;}
@@ -1206,6 +1241,7 @@ function payload(){return{id:A.id,clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.
   sfx:A.sfx.map(s=>({token:s.token,preset:s.preset,at:s.at,volume:s.volume})),
   audios:A.audios.map(a=>({token:a.token,at:a.at,in:a.in,dur:a.dur,volume:a.volume,fadeIn:a.fadeIn,fadeOut:a.fadeOut})),
   pips:A.pips.map(p=>({src:p.src,x:p.x,y:p.y,scale:p.scale,opacity:p.opacity,start:p.start,end:p.end,in:p.in,volume:p.volume})),
+  grade:A.grade,
   texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim}))};}
 async function startJob(url,statusUrl,label){$("#prog").style.width="0";$("#msgA").textContent=label+" 시작…";
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});

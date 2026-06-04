@@ -95,7 +95,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    audios: Sequence[dict] | None = None,
                    pips: Sequence[dict] | None = None,
                    texts: Sequence[dict] | None = None, canvas: tuple | None = None,
-                   sources: dict | None = None,
+                   sources: dict | None = None, grade: dict | None = None,
                    model: str | None = None, normalize: bool = True,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 → MP4 (+ 자막 + 텍스트박스 + 배경음악 + 오버레이 + 효과음).
@@ -124,7 +124,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
         return render.render_timeline(input_path, clips, dst, normalize=normalize,
                                       bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
                                       bgm_fade_out=fout, canvas=canvas, sources=sources,
-                                      progress=prog)
+                                      grade=grade, progress=prog)
 
     if not need_burn:
         _render(base, _scale(0.0, span))
@@ -171,7 +171,7 @@ def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = N
                    sfx: Sequence[dict] | None = None, audios: Sequence[dict] | None = None,
                    pips: Sequence[dict] | None = None,
                    canvas: tuple | None = None,
-                   sources: dict | None = None,
+                   sources: dict | None = None, grade: dict | None = None,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 저화질·고속 프록시 → 컷·트랜지션·오디오·오버레이·효과음 미리보기.
 
@@ -187,7 +187,7 @@ def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = N
                            bgm_volume=float(bo.get("volume", 0.16)),
                            bgm_fade_in=float(bo.get("fadeIn", 0.0)),
                            bgm_fade_out=float(bo.get("fadeOut", 0.0)),
-                           canvas=canvas, sources=sources, scale_h=480, preset="ultrafast", crf="30",
+                           canvas=canvas, sources=sources, grade=grade, scale_h=480, preset="ultrafast", crf="30",
                            progress=(lambda p: progress(p * (0.8 if has_ov else 1.0))) if progress else None)
     if has_ov:
         render.composite(base, out_path, overlays=overlays, sfx=sfx, audios=audios, pips=pips,
