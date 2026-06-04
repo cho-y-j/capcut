@@ -97,6 +97,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    texts: Sequence[dict] | None = None, canvas: tuple | None = None,
                    sources: dict | None = None, grade: dict | None = None,
                    src_h: float | None = None,
+                   scale_h: int | None = None, preset: str | None = None, crf: str | None = None,
                    model: str | None = None, normalize: bool = True,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 → MP4 (+ 자막 + 텍스트박스 + 배경음악 + 오버레이 + 효과음).
@@ -154,7 +155,8 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
         return render.render_timeline(input_path, clips, dst, normalize=normalize,
                                       bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
                                       bgm_fade_out=fout, canvas=canvas, sources=sources,
-                                      grade=grade, progress=prog)
+                                      grade=grade, scale_h=scale_h, preset=preset, crf=crf,
+                                      progress=prog)
 
     if not need_burn:
         _render(base, _scale(0.0, span))
@@ -174,13 +176,13 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
         ass = str(Path(out_path).with_suffix(".ass"))
         subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h, texts=texts, total=total,
                            **subtitle.style_to_kwargs(style))
-        render.burn_subtitles(tmp, ass, base, total_sec=total,
+        render.burn_subtitles(tmp, ass, base, total_sec=total, preset=preset, crf=crf,
                               progress=_scale(span * 0.6, span))
         Path(tmp).unlink(missing_ok=True)
 
     if has_ov:
         render.composite(base, out_path, overlays=overlays, sfx=sfx, audios=audios, pips=pips,
-                         progress=_scale(0.85, 1.0))
+                         preset=preset, crf=crf, progress=_scale(0.85, 1.0))
         Path(base).unlink(missing_ok=True)
     return out_path
 

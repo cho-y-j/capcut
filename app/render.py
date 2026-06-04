@@ -384,12 +384,15 @@ def total_kept(segments: Sequence[Segment]) -> float:
 
 
 def burn_subtitles(video: str, ass_path: str, out_path: str,
-                   *, total_sec: float = 0.0, progress: ProgressCB = None) -> str:
+                   *, total_sec: float = 0.0, preset: str | None = None,
+                   crf: str | None = None, progress: ProgressCB = None) -> str:
     """ass 자막을 영상에 번인."""
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    preset = config.PRESET if preset is None else preset
+    crf = config.CRF if crf is None else crf
     cmd = [config.FFMPEG, "-y", "-i", video,
            "-vf", f"subtitles='{ass_path}'",
-           "-c:v", "libx264", "-preset", config.PRESET, "-crf", str(config.CRF),
+           "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
            "-pix_fmt", "yuv420p", "-c:a", "copy",
            "-movflags", "+faststart", out_path]
     _run_with_progress(cmd, total_sec, progress)

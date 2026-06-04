@@ -627,6 +627,10 @@ async def preview(req: Request) -> JSONResponse:
     audios = _resolve_audios(job, body)
     pips = _resolve_pips(job, body)
     canvas = _canvas(body.get("format"))
+    subtitles = bool(body.get("subtitles", True))   # 미리보기도 자막·텍스트 반영(추출과 일치)
+    cues = body.get("cues")
+    style = body.get("style")
+    texts = body.get("texts") or []
     out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
     PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
 
@@ -635,9 +639,13 @@ async def preview(req: Request) -> JSONResponse:
 
     async def _run():
         try:
-            await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
+            await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
+                                    subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, audios=audios, pips=pips, canvas=canvas, sources=job.get("sources"), grade=body.get("grade"), progress=_cb)
+                                    sfx=sfx, audios=audios, pips=pips, texts=texts, canvas=canvas,
+                                    sources=job.get("sources"), grade=body.get("grade"),
+                                    src_h=body.get("srcH"), scale_h=480, preset="ultrafast", crf="30",
+                                    progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))
