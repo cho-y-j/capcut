@@ -348,6 +348,7 @@ def burn_subtitles(video: str, ass_path: str, out_path: str,
 
 def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = None,
               sfx: Sequence[dict] | None = None, audios: Sequence[dict] | None = None,
+              pips: Sequence[dict] | None = None,
               preset: str | None = None,
               crf: str | None = None, progress: ProgressCB = None) -> str:
     """최종 합성 패스 — 이미지 오버레이(로고/버튼) + 효과음(SFX) + 오디오 클립을 한 번에.
@@ -363,7 +364,8 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
     overlays = list(overlays or [])
     sfx = list(sfx or [])
     audios = list(audios or [])
-    if not overlays and not sfx and not audios:
+    pips = list(pips or [])
+    if not overlays and not sfx and not audios and not pips:
         return video
     preset = config.PRESET if preset is None else preset
     crf = config.CRF if crf is None else crf
@@ -418,12 +420,34 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
         P.append(f"{chain}[ov{i}]")
         P.append(f"[{cur}][ov{i}]overlay=x=W*{px}-w/2:y=H*{py}-h/2{en}[{nb}]")
         cur = nb
-    if overlays:
+
+    # --- 비디오: PIP(영상 위 영상) — 소스 구간 트림 + 출력시각 이동 + 위치·크기 ---
+    pip_aud = []   # (input_idx, pip) — 오디오 있는 PIP만
+    for k, pp in enumerate(pips):
+        inputs += ["-i", pp["path"]]
+        nin += 1
+        idx = nin
+        pw = max(2, int(W * float(pp.get("scale", 0.4))))
+        op = max(0.0, min(1.0, float(pp.get("opacity", 1.0))))
+        px, py = float(pp.get("x", 0.5)), float(pp.get("y", 0.5))
+        s = float(pp.get("start", 0.0))
+        e = float(pp.get("end", s))
+        pin = max(0.0, float(pp.get("in", 0.0)))
+        dur = max(0.05, e - s)
+        P.append(f"[{idx}:v]trim=start={pin:.4f}:end={pin + dur:.4f},setpts=PTS-STARTPTS+{s:.4f}/TB,"
+                 f"scale={pw}:-1,format=rgba,colorchannelmixer=aa={op:.3f}[pv{k}]")
+        nb = f"pb{k}"
+        P.append(f"[{cur}][pv{k}]overlay=x=W*{px}-w/2:y=H*{py}-h/2:"
+                 f"enable='between(t,{s:.3f},{e:.3f})':eof_action=pass[{nb}]")
+        cur = nb
+        if pp.get("hasAudio") and float(pp.get("volume", 1.0)) > 0:
+            pip_aud.append((idx, pp))
+    if overlays or pips:
         vmap = f"[{cur}]"
 
-    # --- 오디오: 효과음(1회) + 자유 오디오 클립(구간·길이·페이드) 믹스 ---
+    # --- 오디오: 효과음(1회) + 자유 오디오 클립 + PIP 영상 사운드 믹스 ---
     amap = "0:a"
-    if sfx or audios:
+    if sfx or audios or pip_aud:
         labels = ["[0:a]"]
         for j, sx in enumerate(sfx):
             inputs += ["-i", sx["path"]]
@@ -452,6 +476,13 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
             P.append(f"[{idx}:a]{trim},asetpts=PTS-STARTPTS,volume={vol:.3f}"
                      f"{fades},adelay={int(at*1000)}:all=1[au{k}]")
             labels.append(f"[au{k}]")
+        for m, (idx, pp) in enumerate(pip_aud):
+            s = float(pp.get("start", 0.0)); e = float(pp.get("end", s))
+            pin = max(0.0, float(pp.get("in", 0.0))); dur = max(0.05, e - s)
+            vol = float(pp.get("volume", 1.0))
+            P.append(f"[{idx}:a]atrim=start={pin:.4f}:end={pin+dur:.4f},asetpts=PTS-STARTPTS,"
+                     f"volume={vol:.3f},adelay={int(s*1000)}:all=1[pa{m}]")
+            labels.append(f"[pa{m}]")
         P.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:"
                  f"normalize=0:dropout_transition=0[aout]")
         amap = "[aout]"

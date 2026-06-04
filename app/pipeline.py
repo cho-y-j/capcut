@@ -93,6 +93,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    overlays: Sequence[dict] | None = None,
                    sfx: Sequence[dict] | None = None,
                    audios: Sequence[dict] | None = None,
+                   pips: Sequence[dict] | None = None,
                    texts: Sequence[dict] | None = None, canvas: tuple | None = None,
                    sources: dict | None = None,
                    model: str | None = None, normalize: bool = True,
@@ -111,7 +112,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
     vol = float(bo.get("volume", 0.16))
     fin, fout = float(bo.get("fadeIn", 0.0)), float(bo.get("fadeOut", 0.0))
     layout, total = render.clip_layout(clips)
-    has_ov = bool(overlays) or bool(sfx) or bool(audios)
+    has_ov = bool(overlays) or bool(sfx) or bool(audios) or bool(pips)
     need_burn = subtitles or bool(texts)
     base = out_path if not has_ov else str(Path(out_path).with_suffix(".noov.mp4"))
     span = 0.85 if has_ov else 1.0
@@ -148,7 +149,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
         Path(tmp).unlink(missing_ok=True)
 
     if has_ov:
-        render.composite(base, out_path, overlays=overlays, sfx=sfx, audios=audios,
+        render.composite(base, out_path, overlays=overlays, sfx=sfx, audios=audios, pips=pips,
                          progress=_scale(0.85, 1.0))
         Path(base).unlink(missing_ok=True)
     return out_path
@@ -168,6 +169,7 @@ def export_mode_a(input_path: str, kept_ranges: Sequence[Tuple[float, float]],
 def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = None,
                    bgm_opts: dict | None = None, overlays: Sequence[dict] | None = None,
                    sfx: Sequence[dict] | None = None, audios: Sequence[dict] | None = None,
+                   pips: Sequence[dict] | None = None,
                    canvas: tuple | None = None,
                    sources: dict | None = None,
                    progress: Optional[Callable[[float], None]] = None) -> str:
@@ -179,7 +181,7 @@ def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = N
     if not clips:
         raise ValueError("클립(보존 구간)이 비었습니다.")
     bo = bgm_opts or {}
-    has_ov = bool(overlays) or bool(sfx) or bool(audios)
+    has_ov = bool(overlays) or bool(sfx) or bool(audios) or bool(pips)
     base = out_path if not has_ov else str(Path(out_path).with_suffix(".noov.mp4"))
     render.render_timeline(input_path, clips, base, normalize=True, bgm=bgm,
                            bgm_volume=float(bo.get("volume", 0.16)),
@@ -188,7 +190,7 @@ def preview_mode_a(input_path: str, clips, out_path: str, *, bgm: str | None = N
                            canvas=canvas, sources=sources, scale_h=480, preset="ultrafast", crf="30",
                            progress=(lambda p: progress(p * (0.8 if has_ov else 1.0))) if progress else None)
     if has_ov:
-        render.composite(base, out_path, overlays=overlays, sfx=sfx, audios=audios,
+        render.composite(base, out_path, overlays=overlays, sfx=sfx, audios=audios, pips=pips,
                          preset="ultrafast", crf="30",
                          progress=(lambda p: progress(0.8 + p * 0.2)) if progress else None)
         Path(base).unlink(missing_ok=True)

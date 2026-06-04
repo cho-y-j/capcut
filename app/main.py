@@ -396,6 +396,33 @@ def _resolve_audios(job: dict, body: dict) -> list:
     return out
 
 
+def _has_audio(path: str) -> bool:
+    import subprocess
+    try:
+        r = subprocess.run([config.FFPROBE, "-v", "error", "-select_streams", "a",
+                            "-show_entries", "stream=index", "-of", "csv=p=0", path],
+                           capture_output=True, text=True)
+        return bool(r.stdout.strip())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _resolve_pips(job: dict, body: dict) -> list:
+    """요청 pips(소스 토큰=addsource 영상) → 경로·위치·크기·구간·트림·볼륨 (영상 위 영상)."""
+    srcs = job.get("sources") or {}
+    out = []
+    for pp in body.get("pips") or []:
+        info = srcs.get(pp.get("src") or pp.get("token") or "")
+        if not info or info.get("kind") == "image" or not Path(info["path"]).exists():
+            continue
+        out.append({"path": info["path"], "x": float(pp.get("x", 0.5)), "y": float(pp.get("y", 0.5)),
+                    "scale": float(pp.get("scale", 0.4)), "opacity": float(pp.get("opacity", 1.0)),
+                    "start": float(pp.get("start", 0.0)), "end": float(pp.get("end", 0.0)),
+                    "in": float(pp.get("in", 0.0)), "volume": float(pp.get("volume", 1.0)),
+                    "hasAudio": _has_audio(info["path"])})
+    return out
+
+
 @app.post("/api/export")
 async def export(req: Request) -> JSONResponse:
     """백그라운드 추출 시작 → /api/export/status 로 진행률 폴링."""
@@ -414,6 +441,7 @@ async def export(req: Request) -> JSONResponse:
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
     audios = _resolve_audios(job, body)
+    pips = _resolve_pips(job, body)
     texts = body.get("texts") or []
     canvas = _canvas(body.get("format"))
     out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
@@ -427,7 +455,7 @@ async def export(req: Request) -> JSONResponse:
             await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
                                     subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, audios=audios, texts=texts, canvas=canvas,
+                                    sfx=sfx, audios=audios, pips=pips, texts=texts, canvas=canvas,
                                     sources=job.get("sources"), progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
@@ -457,6 +485,7 @@ async def preview(req: Request) -> JSONResponse:
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
     audios = _resolve_audios(job, body)
+    pips = _resolve_pips(job, body)
     canvas = _canvas(body.get("format"))
     out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
     PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
@@ -468,7 +497,7 @@ async def preview(req: Request) -> JSONResponse:
         try:
             await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, audios=audios, canvas=canvas, sources=job.get("sources"), progress=_cb)
+                                    sfx=sfx, audios=audios, pips=pips, canvas=canvas, sources=job.get("sources"), progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))
