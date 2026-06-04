@@ -118,11 +118,13 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
     cliplay, total = render.clip_layout(clips)   # 자막 remap용(템플릿 layout 파라미터와 별개)
     w, h = canvas if canvas else probe_video(input_path)[:2]
     sh = float(src_h or h)
-    # 키프레임 있는 텍스트는 PNG로 래스터라이즈 → 오버레이 키프레임 파이프라인(위치·크기·투명도)
+    # 키프레임 또는 배경상자(둥근 글상자)·회전 있는 텍스트는 PNG 래스터화 → 오버레이로
+    # (ASS는 둥근상자/정밀 모션 불가). 평문은 ASS 번인.
     plain_texts = []
     for ix, t in enumerate(texts):
         kfs = t.get("kf") or []
-        if len(kfs) < 2:
+        need_png = len(kfs) >= 2 or bool(t.get("bg")) or abs(float(t.get("rot", 0) or 0)) > 0.1
+        if not need_png:
             plain_texts.append(t)
             continue
         fs0 = float(t.get("fontSize", 60))
@@ -136,13 +138,15 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
             plain_texts.append(t)
             continue
         base_sc = pw / w
-        overlays.append({"path": png, "x": float(t.get("x", .5)), "y": float(t.get("y", .5)),
-                         "scale": base_sc, "opacity": 1.0,
-                         "start": t.get("start"), "end": t.get("end"),
-                         "kf": [{"t": float(k["t"]), "x": float(k.get("x", t.get("x", .5))),
-                                 "y": float(k.get("y", t.get("y", .5))),
-                                 "scale": base_sc * (float(k.get("fontSize", max_fs)) / max_fs),
-                                 "opacity": float(k.get("opacity", 1))} for k in kfs]})
+        ov = {"path": png, "x": float(t.get("x", .5)), "y": float(t.get("y", .5)),
+              "scale": base_sc, "opacity": float(t.get("opacity", 1.0)),
+              "start": t.get("start"), "end": t.get("end")}
+        if len(kfs) >= 2:
+            ov["kf"] = [{"t": float(k["t"]), "x": float(k.get("x", t.get("x", .5))),
+                         "y": float(k.get("y", t.get("y", .5))),
+                         "scale": base_sc * (float(k.get("fontSize", max_fs)) / max_fs),
+                         "opacity": float(k.get("opacity", 1))} for k in kfs]
+        overlays.append(ov)
     texts = plain_texts
     has_ov = bool(overlays) or bool(sfx) or bool(audios) or bool(pips)
     need_burn = subtitles or bool(texts)

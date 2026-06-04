@@ -59,12 +59,18 @@ def text_to_png(t: dict, font_px: float, stroke_px: float, out_path: str) -> tup
     sizes = [d0.textbbox((0, 0), ln or " ", font=font, stroke_width=sw) for ln in lines]
     lw = [b[2] - b[0] for b in sizes]
     lh = [b[3] - b[1] for b in sizes]
-    pad = sw + max(4, fpx // 6)
+    bgcol = t.get("bg")                          # 배경 상자(글상자) 색
+    boxpad = int(fpx * 0.42) if bgcol else 0     # 상자 안쪽 여백
+    pad = sw + max(4, fpx // 6) + boxpad
     line_gap = int(fpx * 0.18)
     W = max(lw) + pad * 2
     H = sum(lh) + line_gap * (len(lines) - 1) + pad * 2
     img = Image.new("RGBA", (max(2, W), max(2, H)), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
+    if bgcol:                                    # 둥근 사각 배경 먼저
+        rgba = _hex_rgb(bgcol) + (int(255 * float(t.get("bgOpacity", 1.0))),)
+        rad = int(min(W, H) * 0.5 * max(0.0, min(1.0, float(t.get("bgr", 0.3)))))
+        d.rounded_rectangle([0, 0, W - 1, H - 1], radius=rad, fill=rgba)
     y = pad
     for i, ln in enumerate(lines):
         x = (W - lw[i]) // 2 - sizes[i][0]

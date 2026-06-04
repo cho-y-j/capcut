@@ -421,6 +421,7 @@
           <button class="btn ghost sm" id="aiOpen" title="AI에게 말로 시키기">🤖 AI에게</button>
         </div>
         <div id="addMenu" class="addmenu hide">
+          <div class="hint" style="margin:0 2px 8px;line-height:1.4">⏱ <b>타임라인에서 원하는 시각으로 옮긴 뒤</b> 추가하면 그 위치에 들어가요 · 영상 위에서 끌어 위치 · 막대로 언제~언제 · 빈 곳 우클릭=여기에 추가</div>
           <div class="amcat">미디어</div>
           <div class="addgrid">
             <button class="btn add sm" id="addClipVid">🎬 영상</button>
@@ -430,7 +431,9 @@
           <div class="amcat">글자 · 그림</div>
           <div class="addgrid">
             <button class="btn add sm" id="addText">🔤 글자</button>
-            <button class="btn add sm" id="addLogo">🖼 이미지 · 스티커</button>
+            <button class="btn add sm" id="addLogo">🖼 이미지</button>
+            <button class="btn add sm" id="addShape">🔷 도형</button>
+            <button class="btn add sm" id="addEmoji">😀 이모지</button>
           </div>
           <div class="amcat">소리</div>
           <div class="addgrid">
@@ -476,6 +479,29 @@
         <div class="ph" id="ph" style="left:0"><div class="phgrip" id="phgrip"></div></div>
       </div></div>
     </div>
+  </div>
+</div>
+
+<!-- 도형 추가 모달 -->
+<div class="modal hide" id="shapeModal">
+  <div class="modalcard" style="max-width:360px">
+    <h2>🔷 도형 추가</h2>
+    <p class="s">도형을 고르면 영상 현재 위치에 추가돼요. 끌어서 위치·크기, 막대로 시간 조절.</p>
+    <div class="row" id="shapeKinds" style="flex-wrap:wrap;gap:7px"></div>
+    <div class="row" style="margin-top:14px;align-items:center;gap:10px">
+      <span class="s">색</span><input type="color" id="shapeColor" value="#ff3d8b" class="swatch">
+      <span class="s">투명도</span><input type="range" id="shapeOp" min="20" max="100" value="100" style="flex:1">
+    </div>
+    <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn ghost" id="shapeCancel">닫기</button></div>
+  </div>
+</div>
+<!-- 이모지 추가 모달 -->
+<div class="modal hide" id="emojiModal">
+  <div class="modalcard" style="max-width:400px">
+    <h2>😀 이모지 추가</h2>
+    <p class="s">누르면 현재 위치에 추가. 끌어서 위치·크기, 막대로 시간 조절.</p>
+    <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:3px;max-height:320px;overflow:auto"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="emojiCancel">닫기</button></div>
   </div>
 </div>
 
@@ -552,6 +578,8 @@ const TRANS=[["none","없음"],["dissolve","디졸브"],["fadeblack","검정"],[
 const ANIMS=[["none","기본"],["pop","팝"],["grow","커짐"],["shrink","작아짐"]];
 const DEF_STYLE={font:"Noto Sans CJK KR",fontSize:56,color:"#ffffff",outlineColor:"#000000",outlineW:3,shadow:1,align:"bottom",bold:true,box:false,marginV:0.08,posX:null,posY:null};
 const $=s=>document.querySelector(s);
+function hexA(h,a){h=(h||"#000000").replace("#","");if(h.length===3)h=h.split("").map(c=>c+c).join("");
+  const n=parseInt(h,16);return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+(a==null?1:a)+")";}
 let mode="a",A=null,imagesB=[],undoStack=[],redoStack=[],cid=0,FONTS=[{label:"기본",family:"Noto Sans CJK KR"}],PRESETS={buttons:[],sounds:[]};
 const clipDur=c=>Math.max(0,c.srcEnd-c.srcIn);
 
@@ -920,6 +948,9 @@ function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
     d.style.color=tx.color;d.style.fontWeight=tx.bold?"700":"400";
     const ow=Math.max(0,tx.outlineW)*box.h/(A.h||720);
     d.style.textShadow=ow>0?`0 0 ${ow}px ${tx.outlineColor},0 0 ${ow}px ${tx.outlineColor},0 0 ${ow}px ${tx.outlineColor}`:"none";
+    if(tx.bg){const fs=tx.fontSize*box.h/(A.h||720);d.style.background=hexA(tx.bg,tx.bgOpacity!=null?tx.bgOpacity:1);
+      d.style.padding="0.42em 0.6em";d.style.borderRadius=((tx.bgr!=null?tx.bgr:0.3)*0.5*100)+"%";}
+    else{d.style.background="";d.style.padding="";d.style.borderRadius="";}
     if(A.playing&&activeAt(tx,t)&&!tkv)applyTextAnim(d,el,tx,t);   // 키프레임 없을 때만 프리셋 애니
     el.appendChild(d);el.ondblclick=()=>{select("text",i);const ta=$("#fldText");if(ta){ta.focus();ta.select();}};
     layer.appendChild(el);});
@@ -1183,6 +1214,35 @@ async function addOverlayFile(f,xy){const fd=new FormData();fd.append("id",A.id)
   pushHistory();const x=xy?xy.x:0.85,y=xy?xy.y:0.85;
   A.overlays.push({id:++cid,token:j.token,url:j.url,name:j.name,x,y,scale:0.2,opacity:1,start:null,end:null,fade:0.3});
   A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();}
+// 토큰(도형·이모지·로고) → 오버레이 요소로 추가
+function addTokenOverlay(token,url,name,scale){pushHistory();const t=curOut();
+  A.overlays.push({id:++cid,token:token,url:url,name:name,x:0.5,y:0.5,scale:scale||0.25,opacity:1,start:t,end:t+4,fade:0,kf:[]});
+  A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();
+  $("#msgA").textContent=name+" 추가 @"+t.toFixed(1)+"s";}
+// 도형
+const SHAPES=[["round","▢ 둥근사각"],["rect","◻ 사각"],["circle","⬤ 원"],["line","― 선"],["arrow","➜ 화살표"],["triangle","▲ 삼각"],["star","★ 별"],["heart","♥ 하트"]];
+$("#addShape").onclick=()=>{const box=$("#shapeKinds");box.innerHTML="";
+  SHAPES.forEach(([k,lbl])=>{const b=document.createElement("button");b.className="chip-btn";b.textContent=lbl;
+    b.onclick=()=>addShape(k);box.appendChild(b);});$("#shapeModal").classList.remove("hide");};
+$("#shapeCancel").onclick=()=>$("#shapeModal").classList.add("hide");
+$("#shapeModal").onclick=e=>{if(e.target.id==="shapeModal")$("#shapeModal").classList.add("hide");};
+async function addShape(kind){const wide=(kind==="line"||kind==="arrow");
+  const body={id:A.id,kind,color:$("#shapeColor").value,opacity:(+$("#shapeOp").value)/100,
+    w:wide?440:300,h:wide?140:300};
+  $("#shapeModal").classList.add("hide");$("#msgA").textContent="도형 생성…";
+  try{const j=await(await fetch("/api/shape",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+    if(j.error){$("#msgA").textContent="실패: "+j.error;return;}addTokenOverlay(j.token,j.url,"도형",wide?0.5:0.3);}catch(e){$("#msgA").textContent="실패";}}
+// 이모지
+const EMO="😀 😂 😍 🥰 😎 🤩 😭 😡 👍 👏 🙏 🔥 ✨ 💯 ❤️ 💕 ⭐ 🎉 🎁 💰 ✅ ❌ ❓ ❗ 📢 📌 👉 👇 ⚡ 💡 🍂 🌸 ☕ 🍔 🛒 🚀 🎵 📷 ⏰ 💎".split(" ");
+$("#addEmoji").onclick=()=>{const g=$("#emojiGrid");g.innerHTML="";
+  EMO.forEach(ch=>{const b=document.createElement("button");b.textContent=ch;b.style.cssText="font-size:24px;border:0;background:transparent;cursor:pointer;padding:5px;border-radius:8px";
+    b.onmouseover=()=>b.style.background="var(--surface)";b.onmouseout=()=>b.style.background="transparent";
+    b.onclick=()=>addEmoji(ch);g.appendChild(b);});$("#emojiModal").classList.remove("hide");};
+$("#emojiCancel").onclick=()=>$("#emojiModal").classList.add("hide");
+$("#emojiModal").onclick=e=>{if(e.target.id==="emojiModal")$("#emojiModal").classList.add("hide");};
+async function addEmoji(ch){$("#emojiModal").classList.add("hide");$("#msgA").textContent="이모지 추가…";
+  try{const j=await(await fetch("/api/emoji",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:A.id,ch})})).json();
+    if(j.error){$("#msgA").textContent="실패: "+j.error;return;}addTokenOverlay(j.token,j.url,ch,0.18);}catch(e){$("#msgA").textContent="실패";}}
 $("#addSfx").onclick=()=>$("#sfxFile").click();
 $("#sfxFile").onchange=async()=>{const f=$("#sfxFile").files[0];if(!f)return;const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   const j=await(await fetch("/api/sfx",{method:"POST",body:fd})).json();if(j.error)return;
@@ -1405,6 +1465,11 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
       ${fldColor("색","fT_color",t.color)}${fldColor("외곽","fT_oc",t.outlineColor)}
       ${fldRange("외곽두께","fT_ow",0,8,.5,t.outlineW)}
       ${fldRange("회전°","fT_rot",-180,180,1,t.rot||0)}
+      <div class="fld"><label>배경상자</label>
+        <label style="width:auto"><input type="checkbox" id="fT_bgon" ${t.bg?'checked':''}> 켜기</label>
+        <input type="color" class="swatch" id="fT_bgc" value="${t.bg||'#1f1d3d'}"></div>
+      ${fldRange("상자 둥글기","fT_bgr",0,100,5,Math.round((t.bgr!=null?t.bgr:0.3)*100))}
+      ${fldRange("상자 투명도","fT_bgo",10,100,5,Math.round((t.bgOpacity!=null?t.bgOpacity:1)*100))}
       <div class="fld"><label>효과</label><select id="fT_anim">${ANIMS.map(([v,l])=>`<option value="${v}" ${t.anim===v?'selected':''}>${l}</option>`).join("")}</select>
         <label style="width:auto"><input type="checkbox" id="fT_bold" ${t.bold?'checked':''}> 굵게</label></div>
       ${fldRange("투명도","fT_op",10,100,5,Math.round((t.opacity!=null?t.opacity:1)*100))}
@@ -1434,6 +1499,10 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
     $("#fT_color").oninput=e=>set("color",e.target.value);$("#fT_oc").oninput=e=>set("outlineColor",e.target.value);
     $("#fT_ow").oninput=e=>set("outlineW",+e.target.value);
     $("#fT_rot").oninput=e=>{t.rot=+e.target.value;renderStage();};$("#fT_rot").onchange=()=>{pushHistory();save();};
+    $("#fT_bgon").onchange=e=>{pushHistory();t.bg=e.target.checked?($("#fT_bgc").value||"#1f1d3d"):null;renderStage();renderInspector();save();};
+    $("#fT_bgc").oninput=e=>{if(t.bg!==null&&$("#fT_bgon").checked){t.bg=e.target.value;renderStage();}};$("#fT_bgc").onchange=()=>{pushHistory();save();};
+    $("#fT_bgr").oninput=e=>{t.bgr=(+e.target.value)/100;renderStage();};$("#fT_bgr").onchange=()=>{pushHistory();save();};
+    $("#fT_bgo").oninput=e=>{t.bgOpacity=(+e.target.value)/100;renderStage();};$("#fT_bgo").onchange=()=>{pushHistory();save();};
     $("#fT_anim").onchange=e=>{pushHistory();set("anim",e.target.value);};
     $("#fT_bold").onchange=e=>{pushHistory();set("bold",e.target.checked);};
     $("#fT_s").onchange=e=>{pushHistory();const v=parseFloat(e.target.value);t.start=isNaN(v)?null:v;redraw();save();};
@@ -1654,7 +1723,7 @@ function payload(){return{id:A.id,clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.
   audios:A.audios.map(a=>({token:a.token,at:a.at,in:a.in,dur:a.dur,volume:a.volume,fadeIn:a.fadeIn,fadeOut:a.fadeOut})),
   pips:A.pips.map(p=>({src:p.src,x:p.x,y:p.y,scale:p.scale,opacity:p.opacity,start:p.start,end:p.end,in:p.in,volume:p.volume,kf:p.kf||[],chromaKey:p.chromaKey||null,chromaSim:p.chromaSim||0.3,mask:p.mask||null})),
   grade:A.grade,layout:A.layout,srcH:A.h,
-  texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim,opacity:t.opacity!=null?t.opacity:1,rot:t.rot||0,kf:t.kf||[]}))};}
+  texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim,opacity:t.opacity!=null?t.opacity:1,rot:t.rot||0,bg:t.bg||null,bgr:t.bgr,bgOpacity:t.bgOpacity,kf:t.kf||[]}))};}
 async function startJob(url,statusUrl,label){$("#prog").style.width="0";$("#msgA").textContent=label+" 시작…";
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
   const j=await r.json();if(j.error){alert(label+" 실패: "+j.error+" (서버 재시작 시 영상 재업로드 필요)");return;}

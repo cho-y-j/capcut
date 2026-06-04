@@ -617,6 +617,53 @@ async def upload_audio(id: str = Form(...), file: UploadFile = File(...)) -> JSO
                          "name": file.filename, "duration": dur})
 
 
+@app.post("/api/shape")
+async def make_shape(req: Request) -> JSONResponse:
+    """도형 PNG 생성 → 오버레이용 토큰. kind/color/stroke/opacity/radius."""
+    from . import shapes
+    import asyncio
+    body = await req.json()
+    job = JOBS.get(body.get("id"))
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    kind = (body.get("kind") or "round")
+    token = uuid.uuid4().hex[:8]
+    dest = config.UPLOAD_DIR / f"{body['id']}_shp_{token}_{kind}.png"
+    try:
+        await asyncio.to_thread(shapes.make_shape, kind, str(dest),
+                                color=body.get("color", "#ff3d8b"), stroke=body.get("stroke", ""),
+                                stroke_w=float(body.get("strokeW", 0) or 0),
+                                opacity=float(body.get("opacity", 1.0)),
+                                radius=float(body.get("radius", 0.25)),
+                                w=int(body.get("w", 400)), h=int(body.get("h", 400)))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=500)
+    job.setdefault("assets", {})[token] = str(dest)
+    save_jobs()
+    return JSONResponse({"token": token, "url": f"/api/asset?id={body['id']}&token={token}", "name": kind})
+
+
+@app.post("/api/emoji")
+async def make_emoji(req: Request) -> JSONResponse:
+    """이모지 문자 → 컬러 PNG 토큰(오버레이용)."""
+    from . import shapes
+    import asyncio
+    body = await req.json()
+    job = JOBS.get(body.get("id"))
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    ch = (body.get("ch") or "😀")
+    token = uuid.uuid4().hex[:8]
+    dest = config.UPLOAD_DIR / f"{body['id']}_emo_{token}.png"
+    try:
+        await asyncio.to_thread(shapes.make_emoji, ch, str(dest))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=500)
+    job.setdefault("assets", {})[token] = str(dest)
+    save_jobs()
+    return JSONResponse({"token": token, "url": f"/api/asset?id={body['id']}&token={token}", "name": ch})
+
+
 @app.get("/api/presets")
 async def get_presets() -> JSONResponse:
     """내장 버튼·효과음 프리셋 목록."""
