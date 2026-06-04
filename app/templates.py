@@ -7,6 +7,39 @@ onimage의 brand={color,logo,name} / theme 개념과 호환(나중에 한 세트
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+from . import config
+
+# 커스텀 템플릿 보관(어드민/외부 업로드) — 내장과 같은 스키마
+CUSTOM_DIR = config.BASE_DIR / "config" / "templates"
+
+
+def load_custom() -> dict:
+    out = {}
+    try:
+        for p in CUSTOM_DIR.glob("*.json"):
+            try:
+                t = json.loads(p.read_text(encoding="utf-8"))
+                if t.get("id"):
+                    out[t["id"]] = t
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def save_custom(t: dict) -> str:
+    CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
+    tid = (t.get("id") or "").strip() or ("tpl" + str(abs(hash(t.get("name", "")))) [:6])
+    t["id"] = tid
+    t.setdefault("name", "내 템플릿"); t.setdefault("desc", "사용자 템플릿"); t["custom"] = True
+    (CUSTOM_DIR / f"{tid}.json").write_text(json.dumps(t, ensure_ascii=False), encoding="utf-8")
+    return tid
+
+
 # 내장 템플릿. (업종팩/사용자 템플릿은 추후 같은 스키마로 추가)
 TEMPLATES = {
     "basic": {
@@ -37,6 +70,14 @@ TEMPLATES = {
         "textAnim": "grow", "textColor": "#111111", "transition": "fadeblack", "dur": 3.6,
         "outro": True, "cta": "더 알아보기",
     },
+    "band": {
+        "name": "상하 띠 (중앙 영상)", "desc": "위아래 색띠 + 가운데 영상, 자막은 띠에",
+        "grade": {"brightness": 1.0, "contrast": 1.06, "saturation": 1.15, "warmth": 0.0},
+        "sub": {"fontSize": 50, "color": "#ffffff", "outlineColor": "#000000", "outlineW": 2, "align": "bottom"},
+        "textAnim": "pop", "textColor": "#ffffff", "transition": "dissolve", "dur": 3.0,
+        "outro": True, "cta": "",
+        "layout": {"videoY": 0.2, "videoH": 0.6, "bg": "{{brand.color}}"},
+    },
 }
 
 # 한국어 별칭(LLM 프롬프트/프론트 호환) → 템플릿 id
@@ -44,7 +85,10 @@ ALIAS = {"감성 브이로그": "vlog", "강렬한 홍보": "promo", "깔끔한 
 
 
 def resolve(tid: str) -> dict:
-    """id 또는 한국어 별칭 → 템플릿 dict(기본=basic). 항상 사본 반환."""
+    """id 또는 한국어 별칭 → 템플릿 dict(기본=basic). 커스텀 포함. 항상 사본 반환."""
+    custom = load_custom()
+    if tid in custom:
+        return {**TEMPLATES["basic"], **custom[tid], "id": tid}
     key = ALIAS.get(tid, tid) if tid not in TEMPLATES else tid
     t = TEMPLATES.get(key) or TEMPLATES["basic"]
     return {**t, "id": key}
@@ -73,10 +117,16 @@ def apply(tid: str, brand: dict | None = None) -> dict:
         "dur": float(t["dur"]),
         "outro": bool(t["outro"]),
         "cta": _sub(t["cta"], brand),
+        "layout": ({**t["layout"], "bg": _sub(t["layout"].get("bg", "#000000"), brand)}
+                   if t.get("layout") else None),
         "brand": {"color": brand.get("color") or "#ff3d8b",
                   "name": brand.get("name") or "", "logo": brand.get("logo") or ""},
     }
 
 
 def list_public() -> list:
-    return [{"id": k, "name": v["name"], "desc": v["desc"]} for k, v in TEMPLATES.items()]
+    items = dict(TEMPLATES)
+    items.update(load_custom())          # 커스텀이 같은 id면 덮어씀
+    return [{"id": k, "name": v.get("name", k), "desc": v.get("desc", ""),
+             "layout": v.get("layout"), "grade": v.get("grade"), "sub": v.get("sub"),
+             "custom": bool(v.get("custom"))} for k, v in items.items()]

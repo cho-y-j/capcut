@@ -160,7 +160,7 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
                     bgm: str | None = None, bgm_volume: float = 0.16,
                     bgm_fade_in: float = 0.0, bgm_fade_out: float = 0.0,
                     canvas: tuple | None = None, sources: dict | None = None,
-                    grade: dict | None = None,
+                    grade: dict | None = None, layout: dict | None = None,
                     scale_h: int | None = None, preset: str | None = None,
                     crf: str | None = None, progress: ProgressCB = None) -> str:
     """클립(여러 소스: 영상/이미지)을 순서대로(+트랜지션) 이어붙여 MP4 생성.
@@ -198,10 +198,21 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
     distinct = {srcinfo(c["src"]).get("path", input_path) for c in norm
                 if srcinfo(c["src"]).get("kind") != "image"}
     multi = has_image or len(distinct) > 1
-    need_vnorm = has_trans or multi or bool(canvas)
+    need_vnorm = has_trans or multi or bool(canvas) or bool(layout)
     ars = ",aresample=44100" if multi else ""
-    vsc = (f",scale={tw}:{th}:force_original_aspect_ratio=increase,"
-           f"crop={tw}:{th},setsar=1,fps={F:.5f}") if need_vnorm else ""
+    if layout:
+        # 레이아웃 틀: 영상을 중앙 박스에 넣고 상하(좌우) 띠를 배경색으로 채움
+        vY = max(0.0, min(0.9, float(layout.get("videoY", 0.0))))
+        vH = max(0.1, min(1.0, float(layout.get("videoH", 1.0))))
+        bg = str(layout.get("bg", "#000000")).lstrip("#")
+        bg = "0x" + bg if len(bg) == 6 else "0x000000"
+        boxH = max(2, (int(th * vH)) // 2 * 2)
+        padY = max(0, (int(th * vY)) // 2 * 2)
+        vsc = (f",scale={tw}:{boxH}:force_original_aspect_ratio=increase,"
+               f"crop={tw}:{boxH},pad={tw}:{th}:0:{padY}:{bg},setsar=1,fps={F:.5f}")
+    else:
+        vsc = (f",scale={tw}:{th}:force_original_aspect_ratio=increase,"
+               f"crop={tw}:{th},setsar=1,fps={F:.5f}") if need_vnorm else ""
 
     inputs: List[str] = ["-i", input_path]
     path2idx = {input_path: 0}

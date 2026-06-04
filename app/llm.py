@@ -196,13 +196,17 @@ def _fetch_ref(url: str) -> str:
 
 
 def plan_project(goal: str, fmt: str, media: list, request: str,
-                 template: str = "", ref_url: str = "") -> dict:
+                 template: str = "", ref_url: str = "", target_sec: float = 0) -> dict:
     """목적·소재·요청 → 첫 컷 구성안 {scenes,hook,music,grade,provider}. CLI→DeepSeek→규칙.
 
     핵심: LLM이 잡담하면 1회 재시도, 그래도 실패면 '복붙 금지' 규칙 폴백.
     """
     n = max(1, len(media))
     ref_info = _fetch_ref(ref_url)                      # 참고 링크 제목·설명(있으면)
+    per = round(float(target_sec) / n, 1) if target_sec else 0
+    dur_line = (f"총 길이 약 {int(target_sec)}초 → 장면당 약 {per}초. 그 길이에 맞게 "
+                f"자막/내레이션 분량을 정해라(길면 1~2문장, 짧으면 한 마디). dur는 {per}로.\n"
+                if target_sec else "장면당 dur 3.0 기준.\n")
     kinds = ", ".join(f"{i+1}.{m.get('kind','?')}" for i, m in enumerate(media))
     prompt = (
         "아래 정보로 영상 '첫 컷' 구성안을 만들어라.\n"
@@ -211,6 +215,7 @@ def plan_project(goal: str, fmt: str, media: list, request: str,
         '"hook":"도입 한 줄","music":true,'
         '"grade":{"brightness":1.0,"contrast":1.0,"saturation":1.0,"warmth":0.0}}\n'
         "주의: scenes의 text는 요청문을 그대로 복사하지 말고 장면에 어울리게 새로 써라.\n"
+        + dur_line +
         f"목적={goal}, 형식={fmt}, 소재 {n}개({kinds}).\n"
         f"템플릿/스타일={template or '없음'}, 참고링크내용={ref_info or ref_url or '없음'}.\n"
         f"요청: {request or '(비어있음 — 알아서 멋지게)'}")

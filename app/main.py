@@ -184,7 +184,7 @@ _AC_DIMS = {"shorts": (1080, 1920), "square": (1080, 1080), "wide": (1920, 1080)
 
 @app.post("/api/autocut/plan")
 async def autocut_plan(goal: str = Form("shorts"), request: str = Form(""),
-                       template: str = Form(""), ref_url: str = Form(""),
+                       template: str = Form(""), ref_url: str = Form(""), duration: str = Form("0"),
                        files: List[UploadFile] = File(...)) -> JSONResponse:
     """1단계 — 소재 업로드 + AI 구성안 생성(렌더 X). 대본/장면을 돌려줘 사용자가 확정."""
     import asyncio
@@ -203,7 +203,11 @@ async def autocut_plan(goal: str = Form("shorts"), request: str = Form(""),
                       "name": f.filename})
     if not saved:
         return JSONResponse({"error": "소재가 없습니다"}, status_code=400)
-    plan = await asyncio.to_thread(llm.plan_project, fmt, fmt, saved, request, template, ref_url)
+    try:
+        tsec = float(duration or 0)
+    except ValueError:
+        tsec = 0
+    plan = await asyncio.to_thread(llm.plan_project, fmt, fmt, saved, request, template, ref_url, tsec)
     AUTOCUT_PLAN[jid] = {"fmt": fmt, "media": saved, "plan": plan, "template": template}
     return JSONResponse({"id": jid, "plan": plan, "template": template,
                          "media": [{"kind": m["kind"], "name": m["name"]} for m in saved]})
@@ -227,6 +231,8 @@ async def autocut_render(req: Request) -> JSONResponse:
         plan["grade"] = body["grade"]
     music = bool(body.get("music", plan.get("music", True)))
     voice = body.get("voice") or None
+    sp = int(body.get("speed", 0) or 0)
+    rate = f"+{sp}%" if sp >= 0 else f"{sp}%"
     from . import templates as _tpl
     tid = body.get("template") or st.get("template") or ""
     tp = _tpl.apply(tid, load_brandkit())               # 템플릿+브랜드 → 빌드 파라미터
@@ -238,7 +244,7 @@ async def autocut_render(req: Request) -> JSONResponse:
     async def _run():
         try:
             res, extras = await asyncio.to_thread(_build_autocut, jid, st["fmt"], st["media"],
-                                                  plan, music, voice, _cb, tp)
+                                                  plan, music, voice, _cb, tp, rate)
             if jid in JOBS:
                 JOBS[jid]["result"] = res        # /api/job 복원용(뒤로가기/새로고침 시 살아남음)
             AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
@@ -257,7 +263,7 @@ async def autocut_status(id: str) -> JSONResponse:
     return JSONResponse(st)
 
 
-def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None):
+def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None, rate="+0%"):
     """동기 빌드 — 확정된 구성안 + 템플릿(tp) → 이미지=모드B / 영상·혼합 → (res, extras)."""
     from . import render
     from .silence import probe_video, probe_duration
@@ -279,7 +285,7 @@ def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None):
         sc = [pipeline.Scene(text=(scenes[i]["text"] or " "), image=media[i]["path"])
               for i in range(len(media))]
         out = str(config.UPLOAD_DIR / f"{jid}_autocut.mp4")
-        res = asyncio.run(pipeline.process_mode_b(sc, out, voice=voice, w=w, h=h, fps=30,
+        res = asyncio.run(pipeline.process_mode_b(sc, out, voice=voice, rate=rate, w=w, h=h, fps=30,
                                                   progress=lambda *a: cb(0.1 + 0.8 * 0.5)))
         JOBS[jid] = {"mode": "b", "path": out, "filename": "AI 첫 컷"}
         cb(0.95)
@@ -334,7 +340,7 @@ def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None):
                "clips": clip_objs, "cuts": [], "cues": []}
         # clips를 extras(restore.clips)로도 — initEditor가 res.clips의 src를 누락하므로 src 보존
         extras = {"format": fmt, "grade": grade, "texts": texts, "overlays": ovs,
-                  "srcMeta": srcMeta, "clips": clip_objs}
+                  "srcMeta": srcMeta, "clips": clip_objs, "layout": tp.get("layout")}
         cb(0.95)
         return res, extras
 
@@ -343,7 +349,7 @@ def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None):
     total_img = float(res.get("duration", 0) or 0)
     ovs = _autocut_decor(jid, tp, hook, total_img, w, h, fmt, texts)
     extras = {"format": fmt, "grade": grade, "texts": texts, "overlays": ovs,
-              "style": tp.get("sub"), "srcMeta": {}}
+              "style": tp.get("sub"), "layout": tp.get("layout"), "srcMeta": {}}
     return res, extras
 
 
@@ -708,6 +714,7 @@ async def export(req: Request) -> JSONResponse:
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
                                     sfx=sfx, audios=audios, pips=pips, texts=texts, canvas=canvas,
                                     sources=job.get("sources"), grade=body.get("grade"),
+                                    layout=body.get("layout"),
                                     src_h=body.get("srcH"), progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
@@ -756,6 +763,7 @@ async def preview(req: Request) -> JSONResponse:
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
                                     sfx=sfx, audios=audios, pips=pips, texts=texts, canvas=canvas,
                                     sources=job.get("sources"), grade=body.get("grade"),
+                                    layout=body.get("layout"),
                                     src_h=body.get("srcH"), scale_h=480, preset="ultrafast", crf="30",
                                     progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
@@ -865,6 +873,39 @@ async def templates_list() -> JSONResponse:
     return JSONResponse(templates.list_public())
 
 
+@app.post("/api/admin/template")
+async def admin_template_save(req: Request) -> JSONResponse:
+    """어드민/외부에서 만든 템플릿 1개 등록(저장). 스키마=내장과 동일."""
+    from . import templates
+    t = await req.json()
+    if not isinstance(t, dict) or not (t.get("name") or t.get("id")):
+        return JSONResponse({"error": "템플릿 형식이 올바르지 않습니다"}, status_code=400)
+    tid = templates.save_custom(t)
+    return JSONResponse({"ok": True, "id": tid})
+
+
+@app.post("/api/admin/template/upload")
+async def admin_template_upload(file: UploadFile = File(...)) -> JSONResponse:
+    """템플릿 JSON 파일 업로드(외부 제작 → 가져오기)."""
+    from . import templates
+    try:
+        t = json.loads((await file.read()).decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"JSON 파싱 실패: {e}"}, status_code=400)
+    if not isinstance(t, dict):
+        return JSONResponse({"error": "객체(JSON) 하나여야 합니다"}, status_code=400)
+    tid = templates.save_custom(t)
+    return JSONResponse({"ok": True, "id": tid})
+
+
+@app.post("/api/admin/template/delete")
+async def admin_template_delete(req: Request) -> JSONResponse:
+    from . import templates
+    body = await req.json()
+    (templates.CUSTOM_DIR / f"{body.get('id')}.json").unlink(missing_ok=True)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/brandkit")
 async def brandkit_get() -> JSONResponse:
     bk = load_brandkit()
@@ -898,14 +939,19 @@ async def brandkit_logo(file: UploadFile = File(...)) -> JSONResponse:
 
 
 @app.get("/api/voice_preview")
-async def voice_preview(voice: str):
-    """성우 미리듣기 — 짧은 한국어 샘플을 합성해 mp3로 반환(캐시)."""
+async def voice_preview(voice: str, rate: str = "0"):
+    """성우 미리듣기 — 짧은 한국어 샘플(속도 반영) 합성 mp3."""
     from . import tts
+    try:
+        sp = int(float(rate))
+    except ValueError:
+        sp = 0
+    r = f"+{sp}%" if sp >= 0 else f"{sp}%"
     safe = "".join(c for c in voice if c.isalnum() or c in "-_") or "default"
-    out = config.UPLOAD_DIR / f"_vp_{safe}.mp3"
+    out = config.UPLOAD_DIR / f"_vp_{safe}_{sp}.mp3"
     if not out.exists():
         try:
-            await tts.synth("안녕하세요, 이 목소리로 내레이션을 만들어요.", str(out), voice=voice)
+            await tts.synth("안녕하세요, 이 목소리로 내레이션을 만들어요.", str(out), voice=voice, rate=r)
         except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=500)
     return FileResponse(str(out), media_type="audio/mpeg")
@@ -957,10 +1003,31 @@ button{{background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:10px
 <button onclick="save()">저장</button> <span id=msg class=s></span>
 <p class=s style=margin-top:10px>키는 서버 config/keys.json에 저장(깃 비추적). 입력 후 Claude CLI가 안 되면 자동으로 DeepSeek 사용.</p>
 </div>
+<div class=card>
+<h1 style=font-size:14px>🎬 템플릿(틀) 만들기 — 상하 띠</h1>
+<p class=s>위아래 색 띠 + 중앙 영상 틀을 만들어 등록. AI 첫 컷의 템플릿 갤러리에 바로 나옵니다.</p>
+<input id=tn placeholder="템플릿 이름 (예: 카페 세로띠)">
+<div class=s style=margin-top:6px>띠 색 <input id=tb type=color value=#1f1d3d style=width:46px;vertical-align:middle>
+ · 중앙영상 위치 <input id=ty type=number value=20 min=0 max=80 style=width:60px>% · 높이 <input id=th type=number value=60 min=20 max=100 style=width:60px>%</div>
+<button onclick="saveT()" style=margin-top:8px>틀 등록</button> <span id=tmsg class=s></span>
+<p class=s style=margin-top:10px>외부에서 만든 템플릿 JSON 가져오기:
+ <input id=tf type=file accept=.json style=display:inline;width:auto> <button onclick="upT()">업로드</button> <span id=umsg class=s></span></p>
+</div>
 <script>
 async function save(){{const k=document.getElementById('ds').value.trim();if(!k)return;
 const r=await fetch('/api/admin/keys',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{deepseek:k}})}});
 document.getElementById('msg').textContent=r.ok?'저장됨 ✓':'실패';document.getElementById('msg').className='ok';}}
+async function saveT(){{const nm=document.getElementById('tn').value.trim();if(!nm){{document.getElementById('tmsg').textContent='이름을 입력';return;}}
+const y=+document.getElementById('ty').value/100,h=+document.getElementById('th').value/100;
+const t={{name:nm,desc:'상하 띠 템플릿',grade:{{brightness:1,contrast:1.06,saturation:1.15,warmth:0}},
+  sub:{{fontSize:50,color:'#ffffff',outlineColor:'#000000',outlineW:2,align:'bottom'}},
+  textAnim:'pop',textColor:'#ffffff',transition:'dissolve',dur:3.0,outro:true,cta:'',
+  layout:{{videoY:y,videoH:h,bg:document.getElementById('tb').value}}}};
+const r=await fetch('/api/admin/template',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(t)}});
+document.getElementById('tmsg').textContent=r.ok?'등록됨 ✓':'실패';document.getElementById('tmsg').className='ok';}}
+async function upT(){{const f=document.getElementById('tf').files[0];if(!f)return;const fd=new FormData();fd.append('file',f);
+const r=await fetch('/api/admin/template/upload',{{method:'POST',body:fd}});const j=await r.json();
+document.getElementById('umsg').textContent=j.ok?('가져옴 ✓ '+j.id):('실패: '+(j.error||'')); document.getElementById('umsg').className='ok';}}
 </script></body></html>"""
 
 

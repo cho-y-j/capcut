@@ -96,6 +96,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    pips: Sequence[dict] | None = None,
                    texts: Sequence[dict] | None = None, canvas: tuple | None = None,
                    sources: dict | None = None, grade: dict | None = None,
+                   layout: dict | None = None,
                    src_h: float | None = None,
                    scale_h: int | None = None, preset: str | None = None, crf: str | None = None,
                    model: str | None = None, normalize: bool = True,
@@ -114,7 +115,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
     bo = bgm_opts or {}
     vol = float(bo.get("volume", 0.16))
     fin, fout = float(bo.get("fadeIn", 0.0)), float(bo.get("fadeOut", 0.0))
-    layout, total = render.clip_layout(clips)
+    cliplay, total = render.clip_layout(clips)   # 자막 remap용(템플릿 layout 파라미터와 별개)
     w, h = canvas if canvas else probe_video(input_path)[:2]
     sh = float(src_h or h)
     # 키프레임 있는 텍스트는 PNG로 래스터라이즈 → 오버레이 키프레임 파이프라인(위치·크기·투명도)
@@ -155,7 +156,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
         return render.render_timeline(input_path, clips, dst, normalize=normalize,
                                       bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
                                       bgm_fade_out=fout, canvas=canvas, sources=sources,
-                                      grade=grade, scale_h=scale_h, preset=preset, crf=crf,
+                                      grade=grade, layout=layout, scale_h=scale_h, preset=preset, crf=crf,
                                       progress=prog)
 
     if not need_burn:
@@ -171,7 +172,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
             else:
                 tr = asr._transcribe_sync(input_path, model or config.WHISPER_MODEL, "ko")
                 cue_objs = subtitle.build_cues(tr["segments"])
-            cue_objs = subtitle.remap_cues_clips(cue_objs, layout)
+            cue_objs = subtitle.remap_cues_clips(cue_objs, cliplay)
         w, h = canvas if canvas else probe_video(input_path)[:2]
         ass = str(Path(out_path).with_suffix(".ass"))
         subtitle.write_ass(cue_objs, ass, play_w=w, play_h=h, texts=texts, total=total,
@@ -250,7 +251,7 @@ def _concat_audio(paths: Sequence[str], out_path: str) -> None:
 
 
 async def process_mode_b(scenes: List[Scene], out_path: str, *,
-                         voice: str | None = None, w: int = 1920, h: int = 1080,
+                         voice: str | None = None, rate: str = "+0%", w: int = 1920, h: int = 1080,
                          fps: int = 30, progress: Progress = None) -> dict:
     tmpdir = Path(tempfile.mkdtemp(prefix="modeb_"))
     _emit(progress, "tts", "run", f"성우 합성 중 ({len(scenes)}장면)")
@@ -260,7 +261,7 @@ async def process_mode_b(scenes: List[Scene], out_path: str, *,
     t = 0.0
     for i, sc in enumerate(scenes):
         ap = str(tmpdir / f"voice_{i:03d}.mp3")
-        dur, _words = await tts.synth(sc.text, ap, voice=voice)
+        dur, _words = await tts.synth(sc.text, ap, voice=voice, rate=rate)
         durations.append(dur)
         audio_paths.append(ap)
         seg_for_cues.append({"start": t, "end": t + dur, "text": sc.text})
