@@ -24,6 +24,7 @@ JOBS: Dict[str, dict] = {}
 EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
 PREVIEW: Dict[str, dict] = {}     # id -> {pct, done, url, error}
 AUTOCUT: Dict[str, dict] = {}     # id -> {pct, done, res, extras, error}
+AUTOCUT_PLAN: Dict[str, dict] = {}  # id -> {fmt, media, plan} (확정 전 임시 보관)
 
 JOBS_FILE = config.UPLOAD_DIR / "_jobs.json"
 
@@ -181,13 +182,13 @@ async def process(id: str) -> StreamingResponse:
 _AC_DIMS = {"shorts": (1080, 1920), "square": (1080, 1080), "wide": (1920, 1080)}
 
 
-@app.post("/api/autocut")
-async def autocut(goal: str = Form("shorts"), request: str = Form(""),
-                  template: str = Form(""), ref_url: str = Form(""), music: str = Form("1"),
-                  voice: str = Form(""),
-                  files: List[UploadFile] = File(...)) -> JSONResponse:
-    """AI 첫 컷 메이커 — 소재+목적+요청 → AI 구성안 → 1차 완성 영상(편집기로 핸드오프)."""
+@app.post("/api/autocut/plan")
+async def autocut_plan(goal: str = Form("shorts"), request: str = Form(""),
+                       template: str = Form(""), ref_url: str = Form(""),
+                       files: List[UploadFile] = File(...)) -> JSONResponse:
+    """1단계 — 소재 업로드 + AI 구성안 생성(렌더 X). 대본/장면을 돌려줘 사용자가 확정."""
     import asyncio
+    from . import llm
     jid = uuid.uuid4().hex[:12]
     fmt = goal if goal in _AC_DIMS else "shorts"
     saved = []
@@ -202,6 +203,30 @@ async def autocut(goal: str = Form("shorts"), request: str = Form(""),
                       "name": f.filename})
     if not saved:
         return JSONResponse({"error": "소재가 없습니다"}, status_code=400)
+    plan = await asyncio.to_thread(llm.plan_project, fmt, fmt, saved, request, template, ref_url)
+    AUTOCUT_PLAN[jid] = {"fmt": fmt, "media": saved, "plan": plan}
+    return JSONResponse({"id": jid, "plan": plan,
+                         "media": [{"kind": m["kind"], "name": m["name"]} for m in saved]})
+
+
+@app.post("/api/autocut/render")
+async def autocut_render(req: Request) -> JSONResponse:
+    """2단계 — 사용자가 확정/편집한 구성안으로 1차 완성 렌더(→ 편집기 핸드오프)."""
+    import asyncio
+    body = await req.json()
+    jid = body.get("id")
+    st = AUTOCUT_PLAN.get(jid)
+    if not st:
+        return JSONResponse({"error": "계획이 만료됐어요. 다시 시작해 주세요."}, status_code=404)
+    plan = dict(st["plan"])
+    if isinstance(body.get("scenes"), list):              # 사용자가 편집한 대본 반영
+        plan["scenes"] = body["scenes"]
+    if body.get("hook") is not None:
+        plan["hook"] = body["hook"]
+    if isinstance(body.get("grade"), dict):
+        plan["grade"] = body["grade"]
+    music = bool(body.get("music", plan.get("music", True)))
+    voice = body.get("voice") or None
     AUTOCUT[jid] = {"pct": 0.0, "done": False, "res": None, "extras": None, "error": None}
 
     def _cb(p):
@@ -209,9 +234,8 @@ async def autocut(goal: str = Form("shorts"), request: str = Form(""),
 
     async def _run():
         try:
-            from . import llm
-            res, extras = await asyncio.to_thread(_build_autocut, jid, fmt, saved,
-                                                  request, template, ref_url, music != "0", voice or None, _cb)
+            res, extras = await asyncio.to_thread(_build_autocut, jid, st["fmt"], st["media"],
+                                                  plan, music, voice, _cb)
             AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
             save_jobs()
         except Exception as e:  # noqa: BLE001
@@ -228,13 +252,12 @@ async def autocut_status(id: str) -> JSONResponse:
     return JSONResponse(st)
 
 
-def _build_autocut(jid, fmt, media, request, template, ref_url, music, voice, cb):
-    """동기 빌드 — 구성안(LLM) → 이미지=모드B / 영상·혼합=멀티소스 concat → (res, extras)."""
-    from . import llm, render
+def _build_autocut(jid, fmt, media, plan, music, voice, cb):
+    """동기 빌드 — 확정된 구성안 → 이미지=모드B / 영상·혼합=멀티소스 concat → (res, extras)."""
+    from . import render
     from .silence import probe_video, probe_duration
     import asyncio
     cb(0.05)
-    plan = llm.plan_project(fmt, fmt, media, request, template, ref_url)
     scenes = plan["scenes"]
     grade = plan.get("grade") or {}
     w, h = _AC_DIMS.get(fmt, (1080, 1920))

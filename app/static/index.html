@@ -6,9 +6,10 @@
 <title>ONCUT — AI 영상 편집</title>
 <style>
   :root{
-    /* 밝은 editorial 테마 (DESIGN.md): 흰 캔버스 · 검은 잉크 · 헤어라인 · 파스텔 */
-    --bg:#ffffff;--card:#ffffff;--surface:#f6f6f4;--line:#e4e4e2;--txt:#0b0b0b;--dim:#6b6b6b;
-    --accent:#16a34a;--accent-dim:#e7f8ee;--red:#e5484d;
+    /* onimage와 통일된 팔레트(DESIGN.md): 흰 캔버스·검은 잉크·마젠타·파스텔·네이비 */
+    --bg:#ffffff;--card:#ffffff;--surface:#f6f6f4;--line:#e4e4e2;--txt:#111111;--dim:#6b6b6b;
+    --accent:#ff3d8b;--accent-dim:#ffe3ef;--blue:#4f7cff;--red:#e5484d;
+    --lime:#dceeb1;--lilac:#c5b0f4;--cream:#f4ecd6;--mint:#c8e6cd;--navy:#1f1d3d;
     --sans:"Inter",-apple-system,system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
     --mono:ui-monospace,SFMono-Regular,Menlo,"Roboto Mono",monospace;
   }
@@ -36,7 +37,7 @@
   .vprop b{color:var(--accent);font-weight:600}
   .drop.big{padding:54px 20px;font-size:14px}
   .drop.big .ic{font-size:34px;display:block;margin-bottom:8px}
-  .btn.xl{font-size:14px;padding:13px 22px;width:100%;justify-content:center}
+  .btn.xl{background:var(--accent);color:#fff;font-size:14px;padding:13px 22px;width:100%;justify-content:center}
   details.adv{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
   details.adv summary{cursor:pointer;color:var(--dim);font-size:12px;list-style:none}
   details.adv summary::-webkit-details-marker{display:none}
@@ -84,6 +85,10 @@
   .acth img{width:100%;height:100%;object-fit:cover;display:block}
   .acth .vd{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:22px}
   .acth .rm{position:absolute;top:2px;right:2px;width:16px;height:16px;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:9px;cursor:pointer;line-height:1;padding:0}
+  .acsrow{display:flex;gap:9px;align-items:center;margin-bottom:7px}
+  .acsth{width:46px;height:46px;flex:none;border-radius:8px;border:1px solid var(--line);background:var(--surface);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .acsth img{width:100%;height:100%;object-fit:cover}
+  .acsrow input{flex:1}
   .steps{display:flex;margin:14px 0}
   .step{flex:1;display:flex;flex-direction:column;gap:8px}
   .dot{width:6px;height:6px;border-radius:50%;background:#333;transition:.25s}
@@ -245,12 +250,12 @@
           <span class="seg-r" data-t="깔끔한 정보">📘 깔끔한 정보</span>
         </div>
         <div style="font-size:11px;color:var(--dim);margin-bottom:5px">③ 소재 올리기 (사진·영상 여러 개)</div>
-        <div class="drop big" id="dropC"><span class="ic">✨</span><b>사진·영상을 여기에 드롭</b> 하거나 클릭 · 여러 개 OK</div>
+        <div class="drop big" id="dropC"><div id="dropCprompt"><span class="ic">✨</span><b>사진·영상을 여기에 드롭</b> 하거나 클릭 · 여러 개 OK</div>
+          <div id="acFiles"></div></div>
         <input type="file" id="fileC" accept="image/*,video/*" multiple class="hide">
-        <div class="hint" id="acFiles" style="margin:8px 0"></div>
-        <div style="font-size:11px;color:var(--dim);margin-bottom:5px">④ 요청 한 줄 (비우면 AI 추천)</div>
+        <div style="font-size:11px;color:var(--dim);margin:14px 0 5px">④ 요청 한 줄 (비우면 AI 추천)</div>
         <textarea id="acReq" placeholder="예: 가을 제주 여행, 감성적으로 · 카페 홍보, 메뉴 강조 · 신제품 소개 30초" style="min-height:50px"></textarea>
-        <input type="text" id="acRef" placeholder="참고 영상/링크 URL (선택) — 톤 참고용" style="margin-top:8px;font-size:11px">
+        <input type="text" id="acRef" placeholder="참고 링크 URL (선택) — 제목·설명을 톤 힌트로만 사용(영상 분석 X)" style="margin-top:8px;font-size:11px">
         <div class="row" style="gap:12px;margin:10px 0;align-items:center">
           <label class="ck"><input type="checkbox" id="acMusic" checked> 배경음악</label>
           <span style="font-size:11px;color:var(--dim)">🎙 성우</span>
@@ -425,6 +430,29 @@
   </div>
 </div>
 
+<!-- AI 구성안 확정(검토) 모달 -->
+<div class="modal hide" id="acReview">
+  <div class="modalcard" style="max-width:580px;max-height:88vh;overflow:auto">
+    <h2>🎬 AI 구성안 — 확정 전 검토</h2>
+    <p class="s">장면별 자막/내레이션을 보고 고친 뒤 만드세요. <span id="acProvider" style="color:var(--dim)"></span></p>
+    <div class="fld"><label style="font-size:11px;color:var(--dim)">도입 훅(크게 뜨는 한 줄)</label>
+      <input type="text" id="acvHook"></div>
+    <div style="font-size:11px;color:var(--dim);margin:10px 0 5px">장면별 자막 · 내레이션</div>
+    <div id="acScenes"></div>
+    <div class="row" style="gap:12px;margin-top:12px;align-items:center">
+      <label class="ck"><input type="checkbox" id="acvMusic" checked> 배경음악</label>
+      <span style="font-size:11px;color:var(--dim)">🎙 성우</span>
+      <select id="acvVoice" style="width:auto;min-width:150px"></select>
+      <button class="btn ghost sm" id="acvPrev" type="button">▶ 미리듣기</button>
+    </div>
+    <div class="hint" style="margin-top:6px">사진은 성우가 내레이션을 읽어요(자막=내레이션). 영상은 원본 소리 유지 + 자막만.</div>
+    <div class="row" style="margin-top:16px;justify-content:flex-end;gap:8px">
+      <button class="btn ghost" id="acvCancel">↩ 취소</button>
+      <button class="btn xl" id="acvGo" style="width:auto">✨ 이대로 1차 완성</button>
+    </div>
+  </div>
+</div>
+
 <!-- 결과(미리보기/완성본) 모달 -->
 <div class="modal hide" id="result">
   <div class="modalcard" style="max-width:760px">
@@ -478,31 +506,64 @@ $("#acVoicePrev").onclick=async()=>{const v=$("#acVoice").value;$("#acVoicePrev"
   catch(e){$("#acVoicePrev").textContent="▶ 미리듣기";}};
 wireDrop($("#dropC"),$("#fileC"),files=>{acFiles=Array.from(files);renderAcThumbs();
   $("#acGen").disabled=acFiles.length===0;$("#acMsg").textContent=acFiles.length?"준비됐어요 — ✨ 눌러 시작":"소재를 올리면 시작할 수 있어요";});
-function renderAcThumbs(){const box=$("#acFiles");box.innerHTML="";if(!acFiles.length)return;
+function renderAcThumbs(){const box=$("#acFiles");box.innerHTML="";
+  const pr=$("#dropCprompt");if(pr)pr.style.display=acFiles.length?"none":"block";
+  if(!acFiles.length)return;
   const imgs=acFiles.filter(f=>f.type.startsWith("image")).length,vids=acFiles.length-imgs;
-  const lbl=document.createElement("div");lbl.style.cssText="font-size:11px;color:var(--dim);margin-bottom:6px";
-  lbl.textContent=`선택됨: 사진 ${imgs} · 영상 ${vids} (드래그로 순서, ✕ 삭제)`;box.appendChild(lbl);
-  const strip=document.createElement("div");strip.className="acthumbs";
+  const lbl=document.createElement("div");lbl.style.cssText="font-size:11px;color:var(--dim);margin-bottom:8px;text-align:center";
+  lbl.textContent=`사진 ${imgs} · 영상 ${vids} · 클릭/드롭으로 더 추가 · ✕ 삭제`;box.appendChild(lbl);
+  const strip=document.createElement("div");strip.className="acthumbs";strip.style.justifyContent="center";
   acFiles.forEach((f,i)=>{const t=document.createElement("div");t.className="acth";
     if(f.type.startsWith("image")){const im=document.createElement("img");im.src=URL.createObjectURL(f);t.appendChild(im);}
     else{const v=document.createElement("div");v.className="vd";v.textContent="🎬";t.appendChild(v);}
     const x=document.createElement("button");x.className="rm";x.textContent="✕";
-    x.onclick=()=>{acFiles.splice(i,1);renderAcThumbs();$("#acGen").disabled=acFiles.length===0;};
+    x.onclick=(ev)=>{ev.stopPropagation();acFiles.splice(i,1);renderAcThumbs();$("#acGen").disabled=acFiles.length===0;};
     t.appendChild(x);strip.appendChild(t);});
   box.appendChild(strip);}
+let ACPLAN=null;   // {id, plan, media}
+// 1단계: 구성안(대본) 생성 → 검토 모달
 $("#acGen").onclick=async()=>{if(!acFiles.length)return;$("#acGen").disabled=true;
   const fd=new FormData();fd.append("goal",acGoal);fd.append("request",$("#acReq").value||"");
-  fd.append("template",acTpl);fd.append("ref_url",$("#acRef").value||"");fd.append("music",$("#acMusic").checked?"1":"0");
-  fd.append("voice",$("#acVoice").value||"");
+  fd.append("template",acTpl);fd.append("ref_url",$("#acRef").value||"");
   acFiles.forEach(f=>fd.append("files",f));
-  $("#acMsg").textContent="✨ AI가 1차 완성을 만드는 중… (소재가 많으면 시간이 걸려요)";
-  const r=await fetch("/api/autocut",{method:"POST",body:fd});const j=await r.json();
-  if(j.error){$("#acMsg").textContent="실패: "+j.error;$("#acGen").disabled=false;return;}
-  const iv=setInterval(async()=>{const s=await(await fetch("/api/autocut/status?id="+j.id)).json();
-    $("#acMsg").textContent="✨ 만드는 중… "+Math.round((s.pct||0)*100)+"%";
-    if(s.done){clearInterval(iv);$("#acGen").disabled=false;
-      if(s.res){$("#acMsg").textContent="완성! 편집기로 이동합니다 ✓";initEditor(j.id,s.res,s.extras||{});}
-      else{$("#acMsg").textContent="실패: "+(s.error||"?");}}},700);};
+  $("#acMsg").textContent="✨ AI가 대본·구성을 짜는 중…";
+  try{const r=await fetch("/api/autocut/plan",{method:"POST",body:fd});const j=await r.json();
+    $("#acGen").disabled=false;
+    if(j.error){$("#acMsg").textContent="실패: "+j.error;return;}
+    ACPLAN=j;openAcReview();$("#acMsg").textContent="구성안을 확인하세요";
+  }catch(e){$("#acGen").disabled=false;$("#acMsg").textContent="실패: "+e;}};
+// 검토 모달 채우기
+function openAcReview(){const p=ACPLAN.plan;$("#acProvider").textContent="(AI: "+(p.provider||"?")+")";
+  $("#acvHook").value=p.hook||"";$("#acvMusic").checked=p.music!==false;
+  $("#acvVoice").innerHTML=$("#acVoice").innerHTML;$("#acvVoice").value=$("#acVoice").value;
+  const box=$("#acScenes");box.innerHTML="";
+  p.scenes.forEach((s,i)=>{const row=document.createElement("div");row.className="acsrow";
+    const th=document.createElement("div");th.className="acsth";
+    const f=acFiles[i];if(f&&f.type.startsWith("image")){const im=document.createElement("img");im.src=URL.createObjectURL(f);th.appendChild(im);}
+    else{th.textContent="🎬";}
+    const ta=document.createElement("input");ta.type="text";ta.value=s.text||"";ta.dataset.i=i;ta.placeholder="장면 "+(i+1)+" 자막/내레이션";
+    row.appendChild(th);row.appendChild(ta);box.appendChild(row);});
+  $("#acReview").classList.remove("hide");}
+$("#acvCancel").onclick=()=>$("#acReview").classList.add("hide");
+$("#acReview").onclick=e=>{if(e.target.id==="acReview")$("#acReview").classList.add("hide");};
+$("#acvPrev").onclick=async()=>{const v=$("#acvVoice").value;$("#acvPrev").textContent="…";
+  try{const a=new Audio("/api/voice_preview?voice="+encodeURIComponent(v)+"&t="+Date.now());
+    a.onended=a.onerror=()=>$("#acvPrev").textContent="▶ 미리듣기";await a.play();}catch(e){$("#acvPrev").textContent="▶ 미리듣기";}};
+// 2단계: 확정 → 렌더 → 편집기
+$("#acvGo").onclick=async()=>{if(!ACPLAN)return;$("#acvGo").disabled=true;
+  const scenes=[...$("#acScenes").querySelectorAll("input")].map((inp,i)=>({text:inp.value,dur:(ACPLAN.plan.scenes[i]||{}).dur||3.0}));
+  const body={id:ACPLAN.id,scenes,hook:$("#acvHook").value,grade:ACPLAN.plan.grade,
+    music:$("#acvMusic").checked,voice:$("#acvVoice").value};
+  $("#acReview").classList.add("hide");$("#acMsg").textContent="✨ 1차 완성을 만드는 중… (소재 많으면 시간 걸려요)";
+  try{const r=await fetch("/api/autocut/render",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const j=await r.json();$("#acvGo").disabled=false;
+    if(j.error){$("#acMsg").textContent="실패: "+j.error;return;}
+    const iv=setInterval(async()=>{const s=await(await fetch("/api/autocut/status?id="+j.id)).json();
+      $("#acMsg").textContent="✨ 만드는 중… "+Math.round((s.pct||0)*100)+"%";
+      if(s.done){clearInterval(iv);
+        if(s.res){$("#acMsg").textContent="완성! 편집기로 이동 ✓";initEditor(j.id,s.res,s.extras||{});}
+        else $("#acMsg").textContent="실패: "+(s.error||"?");}},700);
+  }catch(e){$("#acvGo").disabled=false;$("#acMsg").textContent="실패: "+e;}};
 function renderSteps(m){const el=$("#steps");el.classList.remove("hide");el.innerHTML="";
   STEP_LABELS[m].forEach(([k,lbl])=>{const d=document.createElement("div");d.className="step";d.dataset.key=k;
     d.innerHTML=`<div class="dot"></div><div class="lbl">${lbl}</div><div class="det"></div>`;el.appendChild(d);});}
@@ -1517,6 +1578,7 @@ $("#genB").onclick=async()=>{const fd=new FormData();fd.append("script",$("#scri
 async function loadFonts(){try{FONTS=await(await fetch("/api/fonts")).json();}catch(e){}if(A)renderInspector();}
 async function loadPresets(){try{PRESETS=await(await fetch("/api/presets")).json();}catch(e){}renderPresetChips();}
 window.addEventListener("resize",()=>{if(A){fitStage();redraw();renderStage();applySubStyle();}});
+window.addEventListener("beforeunload",e=>{if(A&&document.body.classList.contains("editing")){e.preventDefault();e.returnValue="";}});  // 실수 이탈 방지(작업은 자동저장됨)
 loadVoices();loadFonts();loadPresets();tryRestore();
 </script>
 </body>
