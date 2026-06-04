@@ -326,19 +326,23 @@ def burn_subtitles(video: str, ass_path: str, out_path: str,
 
 
 def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = None,
-              sfx: Sequence[dict] | None = None, preset: str | None = None,
+              sfx: Sequence[dict] | None = None, audios: Sequence[dict] | None = None,
+              preset: str | None = None,
               crf: str | None = None, progress: ProgressCB = None) -> str:
-    """최종 합성 패스 — 이미지 오버레이(로고/버튼) + 효과음(SFX)을 한 번에.
+    """최종 합성 패스 — 이미지 오버레이(로고/버튼) + 효과음(SFX) + 오디오 클립을 한 번에.
 
     overlay = {path, x, y(중심 0~1), scale(가로비), opacity, start?, end?, fade?}.
       fade>0 이면 표시구간 경계에서 알파 페이드 인/아웃(부드럽게 등장/퇴장).
     sfx     = {path, at(초), volume?}. 해당 시각에 1회 믹스(반복 안 함).
-    위치·시각은 출력 타임라인 기준. 둘 다 없으면 video 그대로 반환.
+    audios  = {path, at(출력시작초), in(소스내 시작), dur(재생길이), volume?,
+               fadeIn?, fadeOut?}. 특정 시간대에 mp3 등을 깔고 길이 조절(자유 배치).
+    위치·시각은 출력 타임라인 기준. 모두 없으면 video 그대로 반환.
     """
     from .silence import probe_duration, probe_video
     overlays = list(overlays or [])
     sfx = list(sfx or [])
-    if not overlays and not sfx:
+    audios = list(audios or [])
+    if not overlays and not sfx and not audios:
         return video
     preset = config.PRESET if preset is None else preset
     crf = config.CRF if crf is None else crf
@@ -379,9 +383,9 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
     if overlays:
         vmap = f"[{cur}]"
 
-    # --- 오디오: 효과음 믹스 ---
+    # --- 오디오: 효과음(1회) + 자유 오디오 클립(구간·길이·페이드) 믹스 ---
     amap = "0:a"
-    if sfx:
+    if sfx or audios:
         labels = ["[0:a]"]
         for j, sx in enumerate(sfx):
             inputs += ["-i", sx["path"]]
@@ -391,6 +395,25 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
             vol = float(sx.get("volume", 1.0))
             P.append(f"[{idx}:a]adelay={int(at*1000)}:all=1,volume={vol:.3f}[sf{j}]")
             labels.append(f"[sf{j}]")
+        for k, au in enumerate(audios):
+            inputs += ["-i", au["path"]]
+            nin += 1
+            idx = nin
+            at = max(0.0, float(au.get("at", 0.0)))
+            ain = max(0.0, float(au.get("in", 0.0)))
+            dur = max(0.05, float(au.get("dur", 0.0))) if au.get("dur") else None
+            vol = float(au.get("volume", 1.0))
+            fin = max(0.0, float(au.get("fadeIn", 0.0)))
+            fout = max(0.0, float(au.get("fadeOut", 0.0)))
+            trim = f"atrim=start={ain:.4f}" + (f":end={ain+dur:.4f}" if dur else "")
+            fades = ""
+            if dur and fin > 0:
+                fades += f",afade=t=in:st=0:d={min(fin, dur):.4f}"
+            if dur and fout > 0:
+                fades += f",afade=t=out:st={max(0.0, dur-min(fout, dur)):.4f}:d={min(fout, dur):.4f}"
+            P.append(f"[{idx}:a]{trim},asetpts=PTS-STARTPTS,volume={vol:.3f}"
+                     f"{fades},adelay={int(at*1000)}:all=1[au{k}]")
+            labels.append(f"[au{k}]")
         P.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:"
                  f"normalize=0:dropout_transition=0[aout]")
         amap = "[aout]"

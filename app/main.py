@@ -302,6 +302,29 @@ async def upload_sfx(id: str = Form(...), file: UploadFile = File(...)) -> JSONR
                          "name": file.filename})
 
 
+@app.post("/api/audio")
+async def upload_audio(id: str = Form(...), file: UploadFile = File(...)) -> JSONResponse:
+    """자유 오디오 클립(mp3 등) 업로드 → 토큰 + 길이. 특정 시간대에 깔고 길이조절."""
+    job = JOBS.get(id)
+    if not job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    token = uuid.uuid4().hex[:8]
+    dest = config.UPLOAD_DIR / f"{id}_aud_{token}_{file.filename}"
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+    job.setdefault("assets", {})[token] = str(dest)
+    save_jobs()
+    import asyncio
+    from .silence import probe_duration
+    try:
+        dur = await asyncio.to_thread(probe_duration, str(dest))
+    except Exception:  # noqa: BLE001
+        dur = 0.0
+    return JSONResponse({"token": token, "url": f"/api/asset?id={id}&token={token}",
+                         "name": file.filename, "duration": dur})
+
+
 @app.get("/api/presets")
 async def get_presets() -> JSONResponse:
     """내장 버튼·효과음 프리셋 목록."""
@@ -354,6 +377,22 @@ def _resolve_sfx(job: dict, body: dict) -> list:
     return out
 
 
+def _resolve_audios(job: dict, body: dict) -> list:
+    """요청 audios(업로드 토큰) → 경로·구간·길이·볼륨·페이드 (자유 오디오 클립)."""
+    out = []
+    for au in body.get("audios") or []:
+        path = _asset_path(job, au)
+        if not path:
+            continue
+        out.append({"path": path, "at": float(au.get("at", 0.0)),
+                    "in": float(au.get("in", 0.0)),
+                    "dur": float(au.get("dur", 0.0)),
+                    "volume": float(au.get("volume", 1.0)),
+                    "fadeIn": float(au.get("fadeIn", 0.0)),
+                    "fadeOut": float(au.get("fadeOut", 0.0))})
+    return out
+
+
 @app.post("/api/export")
 async def export(req: Request) -> JSONResponse:
     """백그라운드 추출 시작 → /api/export/status 로 진행률 폴링."""
@@ -371,6 +410,7 @@ async def export(req: Request) -> JSONResponse:
     bgm_opts = body.get("bgmOpts") or {}
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
+    audios = _resolve_audios(job, body)
     texts = body.get("texts") or []
     canvas = _canvas(body.get("format"))
     out = str(config.OUTPUT_DIR / f"{jid}_cut.mp4")
@@ -384,7 +424,7 @@ async def export(req: Request) -> JSONResponse:
             await asyncio.to_thread(pipeline.export_project, job["path"], clips, out,
                                     subtitles=subtitles, cues=cues, style=style,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, texts=texts, canvas=canvas,
+                                    sfx=sfx, audios=audios, texts=texts, canvas=canvas,
                                     sources=job.get("sources"), progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
@@ -413,6 +453,7 @@ async def preview(req: Request) -> JSONResponse:
     bgm_opts = body.get("bgmOpts") or {}
     overlays = _resolve_overlays(job, body)
     sfx = _resolve_sfx(job, body)
+    audios = _resolve_audios(job, body)
     canvas = _canvas(body.get("format"))
     out = str(config.OUTPUT_DIR / f"{jid}_preview.mp4")
     PREVIEW[jid] = {"pct": 0.0, "done": False, "url": None, "error": None}
@@ -424,7 +465,7 @@ async def preview(req: Request) -> JSONResponse:
         try:
             await asyncio.to_thread(pipeline.preview_mode_a, job["path"], clips, out,
                                     bgm=bgm, bgm_opts=bgm_opts, overlays=overlays,
-                                    sfx=sfx, canvas=canvas, sources=job.get("sources"), progress=_cb)
+                                    sfx=sfx, audios=audios, canvas=canvas, sources=job.get("sources"), progress=_cb)
             PREVIEW[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
             PREVIEW[jid].update(done=True, error=str(e))
