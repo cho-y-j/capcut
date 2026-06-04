@@ -34,6 +34,31 @@ def _grade_filter(g: dict | None) -> str:
     return ",".join(parts)
 
 
+def _chroma_str(pp: dict) -> str:
+    """PIP 크로마키 필터 조각 — chromaKey(hex)·chromaSim. 없으면 빈 문자열."""
+    c = pp.get("chromaKey")
+    if not c:
+        return ""
+    h = str(c).lstrip("#")
+    if len(h) != 6:
+        return ""
+    sim = max(0.01, min(0.9, float(pp.get("chromaSim", 0.3))))
+    return f",chromakey=0x{h.upper()}:{sim:.3f}:0.10"
+
+
+def _mask_expr(m: str | None) -> str:
+    """마스크 모양 → geq 알파 곱 인자(1=보임/0=투명). 원형/둥근사각. 없으면 빈 문자열."""
+    if m == "circle":
+        return ("if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),"
+                "(min(W,H)/2)*(min(W,H)/2)),1,0)")
+    if m == "round":
+        r = "(min(W,H)*0.18)"
+        cx = f"clip(X,{r},W-{r})"
+        cy = f"clip(Y,{r},H-{r})"
+        return (f"if(lte((X-{cx})*(X-{cx})+(Y-{cy})*(Y-{cy}),{r}*{r}),1,0)")
+    return ""
+
+
 def _pw_expr(points, var: str) -> str:
     """키프레임 점들 → 구간별 선형보간 ffmpeg 식. points=[(t, 값식문자열)].
 
@@ -464,21 +489,25 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
         dur = max(0.05, e - s)
         kf = pp.get("kf") or []
         nb = f"pb{k}"
+        ck = _chroma_str(pp)
+        mexpr = _mask_expr(pp.get("mask"))
         trim = f"trim=start={pin:.4f}:end={pin + dur:.4f},setpts=PTS-STARTPTS+{s:.4f}/TB"
-        if len(kf) >= 2:   # PIP 키프레임: 위치·크기·투명도 시간식
+        if len(kf) >= 2:   # PIP 키프레임: 위치·크기·투명도 시간식 (+크로마키·마스크)
             kf = sorted(kf, key=lambda kk: float(kk["t"]))
             bscale = float(pp.get("scale", 0.4))
             xpts = [(float(kk["t"]), f"(W*{float(kk.get('x', px)):.4f}-w/2)") for kk in kf]
             ypts = [(float(kk["t"]), f"(H*{float(kk.get('y', py)):.4f}-h/2)") for kk in kf]
             spts = [(float(kk["t"]), f"{max(2, int(W * float(kk.get('scale', bscale)))):d}") for kk in kf]
             opts_ = [(float(kk["t"]), f"{max(0.0, min(1.0, float(kk.get('opacity', op)))):.4f}") for kk in kf]
-            P.append(f"[{idx}:v]{trim},format=rgba,"
-                     f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')})',"
+            amul = f"*({mexpr})" if mexpr else ""
+            P.append(f"[{idx}:v]{trim}{ck},format=rgba,"
+                     f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')}){amul}',"
                      f"scale=w='{_pw_expr(spts, 't')}':h=-2:eval=frame[pv{k}]")
             P.append(f"[{cur}][pv{k}]overlay=x='{_pw_expr(xpts, 't')}':y='{_pw_expr(ypts, 't')}':"
                      f"enable='between(t,{s:.3f},{e:.3f})':eof_action=pass[{nb}]")
         else:
-            P.append(f"[{idx}:v]{trim},scale={pw}:-1,format=rgba,colorchannelmixer=aa={op:.3f}[pv{k}]")
+            mgeq = (f",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({mexpr})'") if mexpr else ""
+            P.append(f"[{idx}:v]{trim}{ck},scale={pw}:-1,format=rgba,colorchannelmixer=aa={op:.3f}{mgeq}[pv{k}]")
             P.append(f"[{cur}][pv{k}]overlay=x=W*{px}-w/2:y=H*{py}-h/2:"
                      f"enable='between(t,{s:.3f},{e:.3f})':eof_action=pass[{nb}]")
         cur = nb

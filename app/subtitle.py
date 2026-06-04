@@ -71,6 +71,9 @@ def text_to_png(t: dict, font_px: float, stroke_px: float, out_path: str) -> tup
         d.text((x, y - sizes[i][1]), ln, font=font, fill=fill,
                stroke_width=sw, stroke_fill=oc)
         y += lh[i] + line_gap
+    rot = float(t.get("rot", 0) or 0)
+    if abs(rot) > 0.1:                          # CSS는 시계방향(+), PIL은 반시계(+) → 부호 반전
+        img = img.rotate(-rot, expand=True, resample=Image.BICUBIC)
     img.save(out_path)
     return img.size
 
@@ -253,8 +256,10 @@ def _text_dialogue(t: dict, play_w: int, play_h: int, total: float) -> str:
     elif anim == "shrink":
         a = f"\\fscx150\\fscy150\\t(0,{dur},\\fscx100\\fscy100)"
     txt = (t.get("text", "") or "").replace("\n", "\\N")
+    rot = float(t.get("rot", 0) or 0)
+    frz = f"\\frz{-rot:.1f}" if abs(rot) > 0.1 else ""   # ASS는 반시계(+) → CSS시계(+)와 반대
     ov = (f"{{\\an5\\pos({x},{y})\\fn{font}\\fs{fs}\\c{prim}\\3c{outl}"
-          f"\\bord{ow}\\b{b}\\fad(150,150){a}}}")
+          f"\\bord{ow}\\b{b}{frz}\\fad(150,150){a}}}")
     return f"Dialogue: 0,{_ts_ass(s)},{_ts_ass(e)},Default,,0,0,0,,{ov}{txt}"
 
 
