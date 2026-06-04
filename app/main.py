@@ -364,7 +364,7 @@ def _resolve_overlays(job: dict, body: dict) -> list:
         out.append({"path": path, "x": ov.get("x", 0.5), "y": ov.get("y", 0.1),
                     "scale": ov.get("scale", 0.2), "opacity": ov.get("opacity", 1.0),
                     "start": ov.get("start"), "end": ov.get("end"),
-                    "fade": ov.get("fade", 0.0)})
+                    "fade": ov.get("fade", 0.0), "kf": ov.get("kf") or []})
     return out
 
 

@@ -132,6 +132,7 @@
   .ctxmenu .sep{height:1px;background:var(--line);margin:4px 2px}
   .ctxmenu .mi.danger{color:#ff8a8a}
   .bar2.sel{outline:1px solid var(--accent)}
+  .kfm{position:absolute;top:7px;width:7px;height:7px;background:#ffd24a;border:1px solid #04130a;transform:rotate(45deg);pointer-events:none;z-index:3}
   .fmark{position:absolute;top:0;height:22px;width:16px;margin-left:-8px;background:#3a2e12;border:1px solid #c79a3a;border-radius:4px;cursor:pointer;color:#f0d68a;font-size:11px;text-align:center;line-height:20px}
   .fmark.sel{border-color:var(--accent);color:#cdebd6}
   .ph{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;z-index:8}
@@ -558,6 +559,16 @@ function subDrag(e){e.preventDefault();e.stopPropagation();pushHistory();const v
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
 
 function activeAt(o,t){return (o.start==null||t>=o.start-0.001)&&(o.end==null||t<o.end);}
+// 키프레임 모션 — 시각마다 위치·투명도를 찍어 그 사이를 선형보간(추출과 동일)
+function kfAt(o,t){const k=o.kf;if(!k||k.length<2)return null;const ks=[...k].sort((a,b)=>a.t-b.t);
+  const lerp=(a,b,f)=>({x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,opacity:a.opacity+(b.opacity-a.opacity)*f});
+  if(t<=ks[0].t)return {x:ks[0].x,y:ks[0].y,opacity:ks[0].opacity};
+  if(t>=ks[ks.length-1].t){const z=ks[ks.length-1];return {x:z.x,y:z.y,opacity:z.opacity};}
+  for(let i=1;i<ks.length;i++)if(t<=ks[i].t)return lerp(ks[i-1],ks[i],(t-ks[i-1].t)/((ks[i].t-ks[i-1].t)||1));
+  return null;}
+function upsertKf(o,t,vals){if(!o.kf)o.kf=[];const i=o.kf.findIndex(k=>Math.abs(k.t-t)<0.05);
+  if(i>=0)o.kf[i]={...o.kf[i],...vals,t};else o.kf.push({t,x:o.x,y:o.y,opacity:o.opacity,...vals});
+  o.kf.sort((a,b)=>a.t-b.t);}
 function applyTextAnim(d,el,tx,t){const an=tx.anim;if(!an||an==="none")return;
   const s=tx.start!=null?tx.start:0,e=tx.end!=null?tx.end:t+3,dur=Math.max(0.2,e-s),el0=Math.max(0,t-s);
   let sc=1,op=1;
@@ -582,6 +593,7 @@ function renderStage(){const layer=$("#layer"),box=stageBox(),t=curOut();
     layer.appendChild(el);});
   A.overlays.forEach((o,i)=>{const sel=A.sel&&A.sel.type==="overlay"&&A.sel.i===i;
     if(!activeAt(o,t)&&!(sel&&!A.playing))return;  // 재생 중엔 시간 지나면 사라짐
+    const kv=kfAt(o,t);if(kv){o.x=kv.x;o.y=kv.y;o.opacity=kv.opacity;}  // 키프레임 → 현재 시각값으로 동기화
     const el=mkEl("overlay",i,o.x,o.y);el.style.width=(o.scale*box.w)+"px";
     el.style.opacity=activeAt(o,t)?o.opacity:0.4;
     const img=document.createElement("img");img.src=o.url;el.appendChild(img);layer.appendChild(el);});
@@ -596,8 +608,10 @@ function mkEl(type,i,x,y){const el=document.createElement("div");
 function elDrag(e,type,i){e.preventDefault();e.stopPropagation();select(type,i);
   if(e.target.classList.contains("rs"))return;pushHistory();
   const v=$("#srcA"),r=v.getBoundingClientRect(),o=(type==="text"?A.texts:A.overlays)[i];
-  const mv=ev=>{o.x=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width));o.y=Math.max(0,Math.min(1,(ev.clientY-r.top)/r.height));renderStage();};
-  const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);save();};
+  const kfed=type==="overlay"&&o.kf&&o.kf.length;   // 키프레임 있으면 드래그=현재 시각 키프레임 편집
+  const mv=ev=>{const nx=Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width)),ny=Math.max(0,Math.min(1,(ev.clientY-r.top)/r.height));
+    o.x=nx;o.y=ny;if(kfed)upsertKf(o,curOut(),{x:nx,y:ny});renderStage();if(kfed)redraw();};
+  const up=()=>{document.removeEventListener("pointermove",mv);document.removeEventListener("pointerup",up);if(kfed)renderInspector();save();};
   document.addEventListener("pointermove",mv);document.addEventListener("pointerup",up);}
 function elResize(e,type,i){e.preventDefault();e.stopPropagation();pushHistory();
   const box=stageBox(),startX=e.clientX,o=(type==="text"?A.texts:A.overlays)[i];
@@ -741,6 +755,8 @@ function drawElLane(sel,cls,arr){const ln=$(sel);ln.innerHTML="";const total=lay
     el.querySelector(".h.l").onpointerdown=ev=>{ev.stopPropagation();barDrag(ev,ty,i,"l");};
     el.querySelector(".h.r").onpointerdown=ev=>{ev.stopPropagation();barDrag(ev,ty,i,"r");};
     el.oncontextmenu=ev=>elCtxMenu(ev,ty,i);
+    if(ty==="overlay"&&o.kf&&o.kf.length)o.kf.forEach(k=>{const m=document.createElement("div");m.className="kfm";
+      m.style.left=Math.max(0,px(k.t-s)-3)+"px";m.title="키프레임 @"+(+k.t).toFixed(1)+"s";el.appendChild(m);});
     ln.appendChild(el);});}
 function barDrag(e,type,i,kind){e.preventDefault();e.stopPropagation();select(type,i);pushHistory();
   const arr=type==="text"?A.texts:A.overlays,o=arr[i],total=layout().total,startX=e.clientX;
@@ -962,13 +978,24 @@ function renderInspector(){const b=$("#inspBody");const sel=A&&A.sel;
         <button class="chip-btn" data-c="lt">↖</button><button class="chip-btn" data-c="rt">↗</button>
         <button class="chip-btn" data-c="lb">↙</button><button class="chip-btn" data-c="rb">↘</button></div>
       ${fldText("시작(초)","fO_s",o.start!=null?o.start:"")}${fldText("끝(초)","fO_e",o.end!=null?o.end:"")}
-      <button class="btn ghost sm" id="fO_del">삭제</button>`;
+      <div class="seg" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
+        <h3>◆ 키프레임 모션 <span class="num" style="color:var(--dim)">${(o.kf||[]).length}개</span></h3>
+        <div class="row"><button class="btn sm" id="fO_kfadd">◆ 현재 시각에 찍기</button>
+          <button class="btn ghost sm" id="fO_kfclr" ${(o.kf||[]).length?'':'disabled'}>모두 지우기</button></div>
+        <div class="hint" style="margin-top:4px">재생위치를 옮겨 ◆ 두 번 이상 찍으면 그 사이를 부드럽게 이동(위치·투명도). 키프레임이 있으면 영상 위에서 끌어 그 시각의 위치를 바로 수정. (크기 변화는 다음 단계)</div>
+      </div>
+      <button class="btn ghost sm" id="fO_del" style="margin-top:8px">삭제</button>`;
+    const kfd=()=>o.kf&&o.kf.length;
     $("#fO_scale").oninput=e=>{o.scale=(+e.target.value)/100;renderStage();};$("#fO_scale").onchange=()=>{pushHistory();save();};
-    $("#fO_op").oninput=e=>{o.opacity=(+e.target.value)/100;renderStage();};$("#fO_op").onchange=()=>{pushHistory();save();};
+    $("#fO_op").oninput=e=>{o.opacity=(+e.target.value)/100;if(kfd())upsertKf(o,curOut(),{opacity:o.opacity});renderStage();if(kfd())redraw();};$("#fO_op").onchange=()=>{pushHistory();save();};
     $("#fO_fade").oninput=e=>{o.fade=+e.target.value;};$("#fO_fade").onchange=()=>{pushHistory();save();};
-    b.querySelectorAll("[data-c]").forEach(btn=>btn.onclick=()=>{pushHistory();const c=btn.dataset.c;o.x=c[0]==="l"?.13:.87;o.y=c[1]==="t"?.12:.88;renderStage();save();});
+    b.querySelectorAll("[data-c]").forEach(btn=>btn.onclick=()=>{pushHistory();const c=btn.dataset.c;o.x=c[0]==="l"?.13:.87;o.y=c[1]==="t"?.12:.88;if(kfd())upsertKf(o,curOut(),{x:o.x,y:o.y});renderStage();redraw();save();});
     $("#fO_s").onchange=e=>{pushHistory();const v=parseFloat(e.target.value);o.start=isNaN(v)?null:v;redraw();save();};
     $("#fO_e").onchange=e=>{pushHistory();const v=parseFloat(e.target.value);o.end=isNaN(v)?null:v;redraw();save();};
+    $("#fO_kfadd").onclick=()=>{pushHistory();upsertKf(o,curOut(),{x:o.x,y:o.y,opacity:o.opacity});
+      if(o.start==null)o.start=o.kf[0].t;if(o.end==null||o.end<o.kf[o.kf.length-1].t)o.end=o.kf[o.kf.length-1].t;
+      $("#msgA").textContent="키프레임 "+o.kf.length+"개 @"+curOut().toFixed(1)+"s";redraw();renderInspector();save();};
+    $("#fO_kfclr").onclick=()=>{pushHistory();o.kf=[];redraw();renderInspector();save();};
     $("#fO_del").onclick=()=>{pushHistory();A.overlays.splice(sel.i,1);deselect();save();};
   }else if(sel.type==="sfx"){const s=A.sfx[sel.i];if(!s){deselect();return;}
     b.innerHTML=`<h3>효과음</h3>${fldText("시각(초)","fS_at",s.at.toFixed(2))}${fldRange("볼륨","fS_vol",10,150,10,Math.round(s.volume*100))}<button class="btn ghost sm" id="fS_del">삭제</button>`;
@@ -1079,7 +1106,7 @@ $("#tlScroll").addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();set
 function payload(){return{id:A.id,clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:c.transition})),
   subtitles:A.subsOn!==false,format:A.format||"wide",cues:A.cues,style:A.style,
   bgm:A.bgm.enabled,bgmOpts:{volume:A.bgm.volume,fadeIn:A.bgm.fadeIn,fadeOut:A.bgm.fadeOut},
-  overlays:A.overlays.map(o=>({token:o.token,preset:o.preset,x:o.x,y:o.y,scale:o.scale,opacity:o.opacity,start:o.start,end:o.end,fade:o.fade})),
+  overlays:A.overlays.map(o=>({token:o.token,preset:o.preset,x:o.x,y:o.y,scale:o.scale,opacity:o.opacity,start:o.start,end:o.end,fade:o.fade,kf:o.kf||[]})),
   sfx:A.sfx.map(s=>({token:s.token,preset:s.preset,at:s.at,volume:s.volume})),
   audios:A.audios.map(a=>({token:a.token,at:a.at,in:a.in,dur:a.dur,volume:a.volume,fadeIn:a.fadeIn,fadeOut:a.fadeOut})),
   texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim}))};}

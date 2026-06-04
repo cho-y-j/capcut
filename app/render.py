@@ -16,6 +16,27 @@ from .silence import Segment
 ProgressCB = Optional[Callable[[float], None]]   # 0.0~1.0
 
 
+def _pw_expr(points, var: str) -> str:
+    """키프레임 점들 → 구간별 선형보간 ffmpeg 식. points=[(t, 값식문자열)].
+
+    값식은 W/H/w/h 같은 ffmpeg 변수를 포함할 수 있어 문자열로 받는다.
+    범위 밖은 양끝 값으로 클램프(constant). var = 't'(overlay) 또는 'T'(geq).
+    """
+    pts = sorted(points, key=lambda p: p[0])
+    if len(pts) == 1:
+        return pts[0][1]
+    expr = f"({pts[-1][1]})"                                   # 마지막 이후
+    for i in range(len(pts) - 1, 0, -1):
+        t0, v0 = pts[i - 1]
+        t1, v1 = pts[i]
+        if t1 - t0 <= 1e-6:
+            seg = f"({v1})"
+        else:
+            seg = f"(({v0})+(({v1})-({v0}))*({var}-{t0:.4f})/{(t1 - t0):.4f})"
+        expr = f"if(lt({var},{t1:.4f}),{seg},{expr})"
+    return f"if(lt({var},{pts[0][0]:.4f}),({pts[0][1]}),{expr})"
+
+
 def _run_with_progress(cmd: List[str], total_sec: float, cb: ProgressCB) -> None:
     """ffmpeg 실행 + -progress 파싱. 실패 시 stderr 포함 예외."""
     full = cmd[:1] + ["-progress", "pipe:1", "-nostats"] + cmd[1:]
@@ -366,6 +387,24 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
         px, py = float(ov.get("x", 0.5)), float(ov.get("y", 0.1))
         s, e = ov.get("start"), ov.get("end")
         fd = float(ov.get("fade", 0.0) or 0.0)
+        kf = ov.get("kf") or []
+        nb = f"b{i}"
+        if len(kf) >= 2:
+            # 키프레임: 위치(overlay x/y 시간식) + 투명도(geq 알파 시간식)로 정확 모션
+            kf = sorted(kf, key=lambda k: float(k["t"]))
+            xpts = [(float(k["t"]), f"(W*{float(k.get('x', px)):.4f}-w/2)") for k in kf]
+            ypts = [(float(k["t"]), f"(H*{float(k.get('y', py)):.4f}-h/2)") for k in kf]
+            opts_ = [(float(k["t"]), f"{max(0.0, min(1.0, float(k.get('opacity', op)))):.4f}") for k in kf]
+            ks, ke = xpts[0][0], xpts[-1][0]
+            ws = float(s) if s is not None else ks
+            we = float(e) if e is not None else ke
+            chain = (f"[{idx}:v]scale={ow}:-1,format=rgba,"
+                     f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')})'")
+            P.append(f"{chain}[ov{i}]")
+            en = f":enable='between(t,{ws:.3f},{we:.3f})'"
+            P.append(f"[{cur}][ov{i}]overlay=x='{_pw_expr(xpts, 't')}':y='{_pw_expr(ypts, 't')}'{en}[{nb}]")
+            cur = nb
+            continue
         chain = f"[{idx}:v]scale={ow}:-1,format=rgba,colorchannelmixer=aa={op:.3f}"
         en = ""
         if s is not None and e is not None:
@@ -377,7 +416,6 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
             else:
                 en = f":enable='between(t,{s:.3f},{e:.3f})'"
         P.append(f"{chain}[ov{i}]")
-        nb = f"b{i}"
         P.append(f"[{cur}][ov{i}]overlay=x=W*{px}-w/2:y=H*{py}-h/2{en}[{nb}]")
         cur = nb
     if overlays:
