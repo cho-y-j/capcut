@@ -259,13 +259,16 @@ async def upload_bgm(id: str = Form(...), file: UploadFile = File(...)) -> JSONR
     job = JOBS.get(id)
     if not job:
         return JSONResponse({"error": "unknown job"}, status_code=404)
+    token = uuid.uuid4().hex[:8]
     dest = config.UPLOAD_DIR / f"{id}_bgm_{file.filename}"
     with open(dest, "wb") as f:
         while chunk := await file.read(1 << 20):
             f.write(chunk)
     job["bgm"] = str(dest)
+    job.setdefault("assets", {})[token] = str(dest)   # 브라우저 라이브 미리보기용 서빙
     save_jobs()
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "token": token,
+                         "url": f"/api/asset?id={id}&token={token}", "name": file.filename})
 
 
 @app.post("/api/overlay")
