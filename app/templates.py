@@ -78,6 +78,22 @@ TEMPLATES = {
         "outro": True, "cta": "",
         "layout": {"videoY": 0.2, "videoH": 0.6, "bg": "{{brand.color}}"},
     },
+    "modern": {
+        "name": "모던 블랙", "desc": "검정 띠 + 굵은 흰 자막, 시크",
+        "grade": {"brightness": 0.98, "contrast": 1.14, "saturation": 1.08, "warmth": -0.08},
+        "sub": {"fontSize": 64, "color": "#ffffff", "outlineColor": "#000000", "outlineW": 0, "align": "bottom", "box": True},
+        "textAnim": "pop", "textColor": "#ffffff", "transition": "slideleft", "dur": 2.6,
+        "outro": True, "cta": "자세히 보기",
+        "layout": {"videoY": 0.12, "videoH": 0.76, "bg": "#0c0c0c"},
+    },
+    "pastel": {
+        "name": "파스텔 무드", "desc": "부드러운 파스텔 띠 + 둥근 감성",
+        "grade": {"brightness": 1.05, "contrast": 0.96, "saturation": 0.92, "warmth": 0.18},
+        "sub": {"fontSize": 52, "color": "#3a2f4a", "outlineColor": "#ffffff", "outlineW": 3, "align": "bottom"},
+        "textAnim": "grow", "textColor": "#3a2f4a", "transition": "dissolve", "dur": 3.2,
+        "outro": True, "cta": "보러가기",
+        "layout": {"videoY": 0.16, "videoH": 0.68, "bg": "#c5b0f4"},
+    },
 }
 
 # 한국어 별칭(LLM 프롬프트/프론트 호환) → 템플릿 id
@@ -129,4 +145,6 @@ def list_public() -> list:
     items.update(load_custom())          # 커스텀이 같은 id면 덮어씀
     return [{"id": k, "name": v.get("name", k), "desc": v.get("desc", ""),
              "layout": v.get("layout"), "grade": v.get("grade"), "sub": v.get("sub"),
+             "textColor": v.get("textColor", "#ffffff"), "textAnim": v.get("textAnim", "pop"),
+             "outro": bool(v.get("outro")), "cta": v.get("cta", ""),
              "custom": bool(v.get("custom"))} for k, v in items.items()]

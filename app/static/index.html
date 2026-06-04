@@ -30,6 +30,11 @@
   /* 랜딩 히어로 */
   .hero{text-align:center;padding:18px 0 8px}
   .hero h2{font-size:26px;font-weight:700;margin:0 0 6px;letter-spacing:-.02em}
+  .hero.block{background:var(--lilac);border-radius:24px;padding:34px 22px 30px;margin-bottom:18px}
+  .hero.block h2{font-size:34px;line-height:1.12;color:#1f1d3d}
+  .hero.block h2 .g{color:var(--accent)}
+  .hero.block p{color:#3a3358;font-size:13px}
+  @media(max-width:560px){.hero.block h2{font-size:26px}}
   .hero h2 .g{color:var(--accent)}
   .hero p{color:var(--dim);font-size:13px;margin:0 0 18px}
   .vprops{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}
@@ -93,14 +98,19 @@
   .recentlist .ritem{border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;background:var(--surface);font-size:12px;display:flex;gap:8px;align-items:center}
   .recentlist .ritem:hover{border-color:var(--accent)}
   .recentlist .ritem .rx{color:var(--dim);font-size:11px;border:0;background:transparent;cursor:pointer}
-  /* 템플릿 갤러리 */
-  .tplgallery{display:flex;gap:9px;flex-wrap:wrap}
-  .tplcard{width:78px;cursor:pointer;border:2px solid var(--line);border-radius:10px;padding:5px;background:var(--surface);transition:.12s}
-  .tplcard.on{border-color:var(--accent)}
-  .tplcard .pv{width:100%;aspect-ratio:9/16;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;background:#222}
-  .tplcard .pv .band{background:var(--accent)}
-  .tplcard .pv .vid{flex:1;background:linear-gradient(135deg,#5a6b7a,#2c3a47);display:flex;align-items:center;justify-content:center;font-size:13px}
-  .tplcard .nm{font-size:10px;text-align:center;margin-top:4px;color:var(--txt);line-height:1.2}
+  /* 템플릿 갤러리 (미니 미리보기 + 클릭=확대) */
+  .tplgallery{display:flex;gap:10px;flex-wrap:wrap}
+  .tplcard{width:92px;cursor:pointer;border:2px solid var(--line);border-radius:12px;padding:6px;background:#fff;transition:.12s}
+  .tplcard.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+  .tplpv{width:100%;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;background:#1a1a1a;position:relative}
+  .tplpv .vid{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,#9fb3c8 0%,#6b7f93 55%,#3c4a58 100%)}
+  .tplpv .warm{position:absolute;inset:0;pointer-events:none;mix-blend-mode:overlay}
+  .tplpv .smp{position:relative;z-index:2;font-weight:800;text-align:center;padding:0 6px;line-height:1.12;text-shadow:0 1px 4px rgba(0,0,0,.45)}
+  .tplpv .cta{position:absolute;left:50%;bottom:7%;transform:translateX(-50%);z-index:3;font-weight:700;
+    background:var(--accent);color:#fff;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .tplcard .nm{font-size:10px;text-align:center;margin-top:5px;color:var(--txt);line-height:1.2}
+  .tplcard .zoom{font-size:9px;color:var(--dim);text-align:center}
   /* 로딩 스피너 */
   .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:5px}
   @keyframes sp{to{transform:rotate(360deg)}}
@@ -250,9 +260,9 @@
       <button class="tab" data-mode="b">이미지 → 내레이션</button>
     </div>
     <section id="paneC">
-      <div class="hero">
-        <h2>소재 넣고 한 줄 쓰면, <span class="g">AI가 1차 완성</span></h2>
-        <p>사진·영상 여러 개 → 목적 고르고 → 요청 한 줄 → ✨ → 미리보기 → 편집기에서 다듬기 / 캡컷으로</p>
+      <div class="hero block">
+        <h2>소재 넣고 한 줄 쓰면,<br><span class="g">AI가 1차 완성</span></h2>
+        <p>사진·영상 여러 개 → 목적 → 템플릿 → 요청 한 줄 → ✨ → 편집기에서 다듬기 / 캡컷으로</p>
       </div>
       <div class="card">
         <div style="font-size:11px;color:var(--dim);margin-bottom:5px">① 뭘 만들까요?</div>
@@ -468,6 +478,19 @@
   </div>
 </div>
 
+<!-- 템플릿 확대 미리보기 모달 -->
+<div class="modal hide" id="tplModal">
+  <div class="modalcard" style="max-width:420px;text-align:center">
+    <h2 id="tplmName" style="margin-bottom:2px">템플릿</h2>
+    <p class="s" id="tplmDesc"></p>
+    <div id="tplmBig" style="margin:0 auto;max-width:230px"></div>
+    <div class="row" style="margin-top:16px;justify-content:center;gap:8px">
+      <button class="btn ghost" id="tplmClose">닫기</button>
+      <button class="btn xl" id="tplmUse" style="width:auto">이 템플릿 사용</button>
+    </div>
+  </div>
+</div>
+
 <!-- AI 구성안 확정(검토) 모달 -->
 <div class="modal hide" id="acReview">
   <div class="modalcard" style="max-width:580px;max-height:88vh;overflow:auto">
@@ -540,20 +563,37 @@ setMode("c");   // 기본 진입 = AI 첫 컷 메이커
 let acFiles=[],acGoal="shorts",acTpl="basic",acLen=15;
 function acSeg(rowSel,attr,set){document.querySelectorAll(rowSel+" .seg-r").forEach(el=>el.onclick=()=>{
   document.querySelectorAll(rowSel+" .seg-r").forEach(x=>x.classList.remove("on"));el.classList.add("on");set(el.dataset[attr]);});}
-acSeg("#acGoal","g",v=>{acGoal=v;saveIntake();});acSeg("#acLen","l",v=>{acLen=+v;saveIntake();});
-// 템플릿 갤러리(미리보기) — /api/templates
-async function loadTemplates(){try{const ts=await(await fetch("/api/templates")).json();const box=$("#acTpl");box.innerHTML="";
+acSeg("#acGoal","g",v=>{acGoal=v;saveIntake();loadTemplates();});acSeg("#acLen","l",v=>{acLen=+v;saveIntake();});
+function fmtAspect(){return acGoal==="wide"?"16/9":acGoal==="square"?"1/1":"9/16";}
+// 템플릿 실제 모습 미리보기 DOM (색감·띠·자막·CTA·포맷비율 반영)
+function tplPreviewEl(t,big){const pv=document.createElement("div");pv.className="tplpv";pv.style.aspectRatio=fmtAspect();
+  const g=t.grade||{},flt=`brightness(${g.brightness||1}) contrast(${g.contrast||1}) saturate(${g.saturation||1})`;
+  const w=g.warmth||0,ly=t.layout,bg=(ly&&ly.bg&&ly.bg.indexOf("{{")<0)?ly.bg:"var(--accent)";
+  const mk=h=>{const v=document.createElement("div");v.className="vid";v.style.filter=flt;v.style.flex="none";v.style.height=h;
+    const wm=document.createElement("div");wm.className="warm";wm.style.background=Math.abs(w)<.02?"transparent":(w>0?`rgba(255,150,50,${(.5*w).toFixed(2)})`:`rgba(60,150,255,${(.5*-w).toFixed(2)})`);v.appendChild(wm);
+    const s=document.createElement("div");s.className="smp";s.textContent="샘플 제목";s.style.color=t.textColor||"#fff";s.style.fontSize=(big?20:11)+"px";v.appendChild(s);
+    if(t.outro&&(t.cta)){const cta=document.createElement("div");cta.className="cta";cta.textContent=t.cta;cta.style.fontSize=(big?12:7)+"px";v.appendChild(cta);}
+    return v;};
+  if(ly){const top=document.createElement("div");top.style.cssText=`flex:none;height:${ly.videoY*100}%;background:${bg}`;
+    const bot=document.createElement("div");bot.style.cssText=`flex:none;height:${(1-ly.videoY-ly.videoH)*100}%;background:${bg}`;
+    pv.appendChild(top);pv.appendChild(mk((ly.videoH*100)+"%"));pv.appendChild(bot);}
+  else{pv.appendChild(mk("100%"));}
+  return pv;}
+async function loadTemplates(){try{if(!window._TPLS)window._TPLS=await(await fetch("/api/templates")).json();const ts=window._TPLS;
+  const box=$("#acTpl");box.innerHTML="";
   ts.forEach(t=>{const c=document.createElement("div");c.className="tplcard"+(t.id===acTpl?" on":"");c.title=t.desc||"";
-    const pv=document.createElement("div");pv.className="pv";
-    const ly=t.layout;const bg=(ly&&ly.bg&&ly.bg.indexOf("{{")<0)?ly.bg:"var(--accent)";
-    if(ly){const top=document.createElement("div");top.className="band";top.style.height=(ly.videoY*100)+"%";top.style.background=bg;
-      const vid=document.createElement("div");vid.className="vid";vid.textContent="🎞";
-      const bot=document.createElement("div");bot.className="band";bot.style.height=((1-ly.videoY-ly.videoH)*100)+"%";bot.style.background=bg;
-      pv.appendChild(top);pv.appendChild(vid);pv.appendChild(bot);}
-    else{const vid=document.createElement("div");vid.className="vid";vid.textContent="🎞";pv.appendChild(vid);}
+    c.appendChild(tplPreviewEl(t,false));
     const nm=document.createElement("div");nm.className="nm";nm.textContent=t.name+(t.custom?" ·내":"");
-    c.appendChild(pv);c.appendChild(nm);c.onclick=()=>{acTpl=t.id;saveIntake();loadTemplates();};box.appendChild(c);});
+    const z=document.createElement("div");z.className="zoom";z.textContent="🔍 눌러서 크게";
+    c.appendChild(nm);c.appendChild(z);
+    c.onclick=()=>openTplPreview(t);box.appendChild(c);});
 }catch(e){}}
+function openTplPreview(t){$("#tplmName").textContent=t.name+(t.custom?" (내 템플릿)":"");$("#tplmDesc").textContent=t.desc||"";
+  const big=$("#tplmBig");big.innerHTML="";big.appendChild(tplPreviewEl(t,true));
+  $("#tplmUse").onclick=()=>{acTpl=t.id;saveIntake();loadTemplates();$("#tplModal").classList.add("hide");$("#acMsg").textContent="템플릿: "+t.name;};
+  $("#tplModal").classList.remove("hide");}
+$("#tplmClose").onclick=()=>$("#tplModal").classList.add("hide");
+$("#tplModal").onclick=e=>{if(e.target.id==="tplModal")$("#tplModal").classList.add("hide");};
 loadTemplates();
 (async()=>{try{const vs=await(await fetch("/api/voices")).json();
   $("#acVoice").innerHTML=vs.map(v=>`<option value="${v.name}">${v.name.replace("ko-KR-","").replace("Neural","")} (${v.gender==="Female"?"여":"남"})</option>`).join("");
