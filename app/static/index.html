@@ -122,7 +122,7 @@
   .bar2{position:absolute;top:0;height:22px;border-radius:4px;font-size:10px;padding:3px 5px;overflow:hidden;white-space:nowrap;cursor:grab}
   .bar2 .h{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize}.bar2 .h.l{left:0}.bar2 .h.r{right:0}
   .bar2.sub{background:var(--accent-dim);border:1px solid #2c5;color:#d6f5e0}
-  .bar2.txt{background:#2d2440;border:1px solid #7e6cc0;color:#dcd2f5}
+  .bar2.text{background:#2d2440;border:1px solid #7e6cc0;color:#dcd2f5}
   .bar2.ov{background:#2a2030;border:1px solid #7c5a8c;color:#e6c8f5}
   .bar2.bgm{background:#1b2330;border:1px solid #3a567c;color:#bcd3f5}
   .bar2.aud{background:#13302a;border:1px solid #2e9c7e;color:#bdf5e3}
@@ -672,6 +672,15 @@ function deselect(){A.sel=null;renderStage();redraw();renderInspector();}
 
 // ===== 타임라인 =====
 function px(t){return t*A.pxPerSec;}
+// 멀티트랙 스태킹: 시간 겹치는 항목을 서브행으로 분배(인터벌 분할, 충돌 방지)
+const TL_ROW=22,TL_GAP=3;
+function packRows(spans){const order=spans.map((s,i)=>i).sort((a,b)=>spans[a].s-spans[b].s||spans[a].e-spans[b].e);
+  const rowEnd=[],row=new Array(spans.length).fill(0);
+  for(const i of order){let r=0;for(;r<rowEnd.length;r++){if(spans[i].s>=rowEnd[r]-1e-6)break;}
+    if(r===rowEnd.length)rowEnd.push(spans[i].e);else rowEnd[r]=spans[i].e;row[i]=r;}
+  return {row,n:Math.max(1,rowEnd.length)};}
+function laneHeight(n){return n*TL_ROW+(n-1)*TL_GAP;}
+function rowTop(r){return r*(TL_ROW+TL_GAP);}
 function redraw(){if(!A)return;const {starts,total,dv}=layout();
   $("#tlInner").style.width=Math.max(320,px(total))+"px";
   const ru=$("#ruler");ru.innerHTML="";const step=total>60?10:total>20?5:total>8?2:1;
@@ -718,10 +727,13 @@ function laneBars(sel,cls,items){const ln=$(sel);ln.innerHTML="";
     el.style.left=px(it.left)+"px";el.style.width=Math.max(8,px(it.w))+"px";el.textContent=(it.text||"").replace(/\n/g," ");
     el.onclick=()=>{seekOut(it.left);if(cls==="sub"){select("cue",it.i);const ta=document.getElementById("fU_text");if(ta)ta.focus();}onTime();};ln.appendChild(el);});}
 function drawElLane(sel,cls,arr){const ln=$(sel);ln.innerHTML="";const total=layout().total;
-  arr.forEach((o,i)=>{const s=o.start!=null?o.start:0,e=o.end!=null?o.end:total;
+  const spans=arr.map(o=>({s:o.start!=null?o.start:0,e:o.end!=null?o.end:total}));
+  const {row,n}=packRows(spans);ln.style.height=laneHeight(n)+"px";
+  arr.forEach((o,i)=>{const s=spans[i].s,e=spans[i].e;
     const elSel=A.sel&&A.sel.type===(cls==="text"?"text":"overlay")&&A.sel.i===i;
     const el=document.createElement("div");el.className="bar2 "+cls+(elSel?" sel":"");
     el.style.left=px(s)+"px";el.style.width=Math.max(14,px(e-s))+"px";
+    el.style.top=rowTop(row[i])+"px";el.style.height=TL_ROW+"px";
     el.textContent=(cls==="text"?("T "+(o.text||"")):("🖼 "+(o.name||"")));
     el.innerHTML+=`<div class="h l"></div><div class="h r"></div>`;
     const ty=cls==="text"?"text":"overlay";
@@ -752,9 +764,12 @@ function drawBgm(){const ln=$("#laneA");ln.innerHTML="";if(!A.bgm.enabled)return
   const el=document.createElement("div");el.className="bar2 bgm";el.style.left="0";el.style.width=px(layout().total)+"px";
   el.textContent="♪ "+(A.bgm.file||"배경음악");el.onclick=()=>select("bgm",0);ln.appendChild(el);}
 function drawAudios(){const ln=$("#laneU");ln.innerHTML="";
+  const spans=A.audios.map(a=>({s:a.at,e:a.at+a.dur}));const {row,n}=packRows(spans);
+  ln.style.height=(A.audios.length?laneHeight(n):TL_ROW)+"px";
   A.audios.forEach((a,i)=>{const sel=A.sel&&A.sel.type==="audio"&&A.sel.i===i;
     const el=document.createElement("div");el.className="bar2 aud"+(sel?" sel":"");
     el.style.left=px(a.at)+"px";el.style.width=Math.max(14,px(a.dur))+"px";
+    el.style.top=rowTop(row[i])+"px";el.style.height=TL_ROW+"px";
     el.textContent="🎶 "+(a.name||"오디오");
     el.innerHTML+=`<div class="h l"></div><div class="h r"></div>`;
     el.onpointerdown=ev=>audioDrag(ev,i,"move");
