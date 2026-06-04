@@ -419,7 +419,7 @@ def _resolve_pips(job: dict, body: dict) -> list:
                     "scale": float(pp.get("scale", 0.4)), "opacity": float(pp.get("opacity", 1.0)),
                     "start": float(pp.get("start", 0.0)), "end": float(pp.get("end", 0.0)),
                     "in": float(pp.get("in", 0.0)), "volume": float(pp.get("volume", 1.0)),
-                    "hasAudio": _has_audio(info["path"])})
+                    "kf": pp.get("kf") or [], "hasAudio": _has_audio(info["path"])})
     return out
 
 

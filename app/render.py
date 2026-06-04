@@ -419,14 +419,17 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
         if len(kf) >= 2:
             # 키프레임: 위치(overlay x/y 시간식) + 투명도(geq 알파 시간식)로 정확 모션
             kf = sorted(kf, key=lambda k: float(k["t"]))
+            bscale = float(ov.get("scale", 0.2))
             xpts = [(float(k["t"]), f"(W*{float(k.get('x', px)):.4f}-w/2)") for k in kf]
             ypts = [(float(k["t"]), f"(H*{float(k.get('y', py)):.4f}-h/2)") for k in kf]
             opts_ = [(float(k["t"]), f"{max(0.0, min(1.0, float(k.get('opacity', op)))):.4f}") for k in kf]
+            spts = [(float(k["t"]), f"{max(2, int(W * float(k.get('scale', bscale)))):d}") for k in kf]
             ks, ke = xpts[0][0], xpts[-1][0]
             ws = float(s) if s is not None else ks
             we = float(e) if e is not None else ke
-            chain = (f"[{idx}:v]scale={ow}:-1,format=rgba,"
-                     f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')})'")
+            chain = (f"[{idx}:v]format=rgba,"
+                     f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')})',"
+                     f"scale=w='{_pw_expr(spts, 't')}':h=-2:eval=frame")
             P.append(f"{chain}[ov{i}]")
             en = f":enable='between(t,{ws:.3f},{we:.3f})'"
             P.append(f"[{cur}][ov{i}]overlay=x='{_pw_expr(xpts, 't')}':y='{_pw_expr(ypts, 't')}'{en}[{nb}]")
@@ -459,11 +462,25 @@ def composite(video: str, out_path: str, *, overlays: Sequence[dict] | None = No
         e = float(pp.get("end", s))
         pin = max(0.0, float(pp.get("in", 0.0)))
         dur = max(0.05, e - s)
-        P.append(f"[{idx}:v]trim=start={pin:.4f}:end={pin + dur:.4f},setpts=PTS-STARTPTS+{s:.4f}/TB,"
-                 f"scale={pw}:-1,format=rgba,colorchannelmixer=aa={op:.3f}[pv{k}]")
+        kf = pp.get("kf") or []
         nb = f"pb{k}"
-        P.append(f"[{cur}][pv{k}]overlay=x=W*{px}-w/2:y=H*{py}-h/2:"
-                 f"enable='between(t,{s:.3f},{e:.3f})':eof_action=pass[{nb}]")
+        trim = f"trim=start={pin:.4f}:end={pin + dur:.4f},setpts=PTS-STARTPTS+{s:.4f}/TB"
+        if len(kf) >= 2:   # PIP 키프레임: 위치·크기·투명도 시간식
+            kf = sorted(kf, key=lambda kk: float(kk["t"]))
+            bscale = float(pp.get("scale", 0.4))
+            xpts = [(float(kk["t"]), f"(W*{float(kk.get('x', px)):.4f}-w/2)") for kk in kf]
+            ypts = [(float(kk["t"]), f"(H*{float(kk.get('y', py)):.4f}-h/2)") for kk in kf]
+            spts = [(float(kk["t"]), f"{max(2, int(W * float(kk.get('scale', bscale)))):d}") for kk in kf]
+            opts_ = [(float(kk["t"]), f"{max(0.0, min(1.0, float(kk.get('opacity', op)))):.4f}") for kk in kf]
+            P.append(f"[{idx}:v]{trim},format=rgba,"
+                     f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({_pw_expr(opts_, 'T')})',"
+                     f"scale=w='{_pw_expr(spts, 't')}':h=-2:eval=frame[pv{k}]")
+            P.append(f"[{cur}][pv{k}]overlay=x='{_pw_expr(xpts, 't')}':y='{_pw_expr(ypts, 't')}':"
+                     f"enable='between(t,{s:.3f},{e:.3f})':eof_action=pass[{nb}]")
+        else:
+            P.append(f"[{idx}:v]{trim},scale={pw}:-1,format=rgba,colorchannelmixer=aa={op:.3f}[pv{k}]")
+            P.append(f"[{cur}][pv{k}]overlay=x=W*{px}-w/2:y=H*{py}-h/2:"
+                     f"enable='between(t,{s:.3f},{e:.3f})':eof_action=pass[{nb}]")
         cur = nb
         if pp.get("hasAudio") and float(pp.get("volume", 1.0)) > 0:
             pip_aud.append((idx, pp))
