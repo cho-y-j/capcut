@@ -23,6 +23,7 @@ app.mount("/out", StaticFiles(directory=str(config.OUTPUT_DIR)), name="out")
 JOBS: Dict[str, dict] = {}
 EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
 PREVIEW: Dict[str, dict] = {}     # id -> {pct, done, url, error}
+AUTOCUT: Dict[str, dict] = {}     # id -> {pct, done, res, extras, error}
 
 JOBS_FILE = config.UPLOAD_DIR / "_jobs.json"
 
@@ -175,6 +176,141 @@ async def _sse(job_id: str):
 @app.get("/api/process")
 async def process(id: str) -> StreamingResponse:
     return StreamingResponse(_sse(id), media_type="text/event-stream")
+
+
+_AC_DIMS = {"shorts": (1080, 1920), "square": (1080, 1080), "wide": (1920, 1080)}
+
+
+@app.post("/api/autocut")
+async def autocut(goal: str = Form("shorts"), request: str = Form(""),
+                  template: str = Form(""), ref_url: str = Form(""), music: str = Form("1"),
+                  files: List[UploadFile] = File(...)) -> JSONResponse:
+    """AI 첫 컷 메이커 — 소재+목적+요청 → AI 구성안 → 1차 완성 영상(편집기로 핸드오프)."""
+    import asyncio
+    jid = uuid.uuid4().hex[:12]
+    fmt = goal if goal in _AC_DIMS else "shorts"
+    saved = []
+    for i, f in enumerate(files):
+        ext = Path(f.filename or "").suffix.lower()
+        is_img = ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic"}
+        dest = config.UPLOAD_DIR / f"{jid}_ac{i:03d}_{f.filename}"
+        with open(dest, "wb") as out:
+            while chunk := await f.read(1 << 20):
+                out.write(chunk)
+        saved.append({"path": str(dest), "kind": "image" if is_img else "video",
+                      "name": f.filename})
+    if not saved:
+        return JSONResponse({"error": "소재가 없습니다"}, status_code=400)
+    AUTOCUT[jid] = {"pct": 0.0, "done": False, "res": None, "extras": None, "error": None}
+
+    def _cb(p):
+        AUTOCUT[jid]["pct"] = max(AUTOCUT[jid]["pct"], min(0.99, p))
+
+    async def _run():
+        try:
+            from . import llm
+            res, extras = await asyncio.to_thread(_build_autocut, jid, fmt, saved,
+                                                  request, template, ref_url, music != "0", _cb)
+            AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
+            save_jobs()
+        except Exception as e:  # noqa: BLE001
+            import traceback; traceback.print_exc()
+            AUTOCUT[jid].update(done=True, error=str(e))
+
+    asyncio.create_task(_run())
+    return JSONResponse({"id": jid})
+
+
+@app.get("/api/autocut/status")
+async def autocut_status(id: str) -> JSONResponse:
+    st = AUTOCUT.get(id) or {"error": "no job"}
+    return JSONResponse(st)
+
+
+def _build_autocut(jid, fmt, media, request, template, ref_url, music, cb):
+    """동기 빌드 — 구성안(LLM) → 이미지=모드B / 영상·혼합=멀티소스 concat → (res, extras)."""
+    from . import llm, render
+    from .silence import probe_video, probe_duration
+    import asyncio
+    cb(0.05)
+    plan = llm.plan_project(fmt, fmt, media, request, template, ref_url)
+    scenes = plan["scenes"]
+    grade = plan.get("grade") or {}
+    w, h = _AC_DIMS.get(fmt, (1080, 1920))
+    has_video = any(m["kind"] == "video" for m in media)
+    # 도입 훅 텍스트
+    hook = (plan.get("hook") or "").strip()
+
+    if not has_video:
+        # 이미지 전용 → 모드 B(내레이션 슬라이드쇼) 재사용
+        sc = [pipeline.Scene(text=(scenes[i]["text"] or " "), image=media[i]["path"])
+              for i in range(len(media))]
+        out = str(config.UPLOAD_DIR / f"{jid}_autocut.mp4")
+        res = asyncio.run(pipeline.process_mode_b(sc, out, w=w, h=h, fps=30,
+                                                  progress=lambda *a: cb(0.1 + 0.8 * 0.5)))
+        JOBS[jid] = {"mode": "b", "path": out, "filename": "AI 첫 컷"}
+        cb(0.95)
+    else:
+        # 영상/혼합 → 첫 영상=메인('0'), 나머지=소스. AI 순서대로 클립.
+        vids = [m for m in media if m["kind"] == "video"]
+        mainm = vids[0]
+        try:
+            mw, mh, mfps = probe_video(mainm["path"])
+        except Exception:  # noqa: BLE001
+            mw, mh, mfps = 1280, 720, 30.0
+        sources, srcMeta = {}, {}
+        token_of = {}
+        for m in media:
+            if m is mainm:
+                token_of[id(m)] = "0"
+                continue
+            tok = uuid.uuid4().hex[:8]
+            dur = round(probe_duration(m["path"]), 2) if m["kind"] == "video" else None
+            sources[tok] = {"path": m["path"], "kind": m["kind"], "name": m["name"], "duration": dur}
+            srcMeta[tok] = {"kind": m["kind"], "url": f"/api/media?id={jid}&src={tok}",
+                            "name": m["name"], "duration": dur}
+            token_of[id(m)] = tok
+        clips, cid = [], 0
+        for i, m in enumerate(media):
+            tok = token_of[id(m)]
+            if m["kind"] == "video":
+                d = probe_duration(m["path"]) if tok == "0" else sources[tok]["duration"]
+                length = max(1.5, min(float(d or 4), float(scenes[i].get("dur", 4) or 4)))
+                clip = {"src": tok, "srcIn": 0.0, "srcEnd": length}
+            else:
+                clip = {"src": tok, "srcIn": 0.0, "srcEnd": float(scenes[i].get("dur", 3) or 3)}
+            clip["transition"] = {"type": "none" if i == 0 else "dissolve", "dur": 0.5}
+            clips.append(clip)
+        JOBS[jid] = {"mode": "a", "path": mainm["path"], "filename": "AI 첫 컷", "sources": sources}
+        starts, total, _ = render.output_layout(clips)
+        # 장면 자막 → 텍스트박스(클립 출력 구간에 표시)
+        texts = []
+        for i, c in enumerate(clips):
+            t = (scenes[i].get("text") or "").strip()
+            if not t:
+                continue
+            s0 = starts[i]; e0 = s0 + (c["srcEnd"] - c["srcIn"])
+            texts.append({"text": t, "x": 0.5, "y": 0.82, "fontSize": 64 if fmt == "shorts" else 52,
+                          "color": "#ffffff", "outlineColor": "#000000", "outlineW": 4, "bold": True,
+                          "font": "Black Han Sans", "start": round(s0, 2), "end": round(e0, 2),
+                          "anim": "pop", "opacity": 1})
+        clip_objs = [{"srcIn": c["srcIn"], "srcEnd": c["srcEnd"], "src": c["src"],
+                      "transition": c["transition"]} for c in clips]
+        res = {"mode": "a", "duration": total, "w": mw, "h": mh, "fps": mfps,
+               "clips": clip_objs, "cuts": [], "cues": []}
+        # clips를 extras(restore.clips)로도 — initEditor가 res.clips의 src를 누락하므로 src 보존
+        extras = {"format": fmt, "grade": grade, "texts": texts, "srcMeta": srcMeta, "clips": clip_objs}
+        cb(0.95)
+        return res, extras
+
+    # 이미지 경로 res/extras
+    texts = []
+    if hook:
+        texts.append({"text": hook, "x": 0.5, "y": 0.18, "fontSize": 72, "color": "#ffffff",
+                      "outlineColor": "#000000", "outlineW": 4, "bold": True, "font": "Black Han Sans",
+                      "start": 0.0, "end": 2.5, "anim": "pop", "opacity": 1})
+    extras = {"format": fmt, "grade": grade, "texts": texts, "srcMeta": {}}
+    return res, extras
 
 
 @app.get("/api/media")

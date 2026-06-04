@@ -53,6 +53,12 @@ async def synth(text: str, out_path: str, *, voice: str | None = None,
 
     길이는 실제 오디오 파일에서 측정(워드바운더리 미제공 보이스 대비)."""
     voice = voice or config.TTS_VOICE
+    if not (text or "").strip():        # 빈 자막 → 짧은 무음(장면은 유지). 파이프라인 크래시 방지
+        import asyncio, subprocess
+        await asyncio.to_thread(subprocess.run,
+            [config.FFMPEG, "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+             "-t", "1.5", "-q:a", "9", out_path], capture_output=True)
+        return 1.5, []
     words = await _synth_edge(text, voice, out_path, rate, pitch)
     duration = _probe_audio_dur(out_path)
     if duration <= 0 and words:

@@ -129,3 +129,95 @@ def _parse(raw: str) -> dict:
     if not isinstance(acts, list):
         acts = []
     return {"actions": acts, "reply": (obj.get("reply") if isinstance(obj, dict) else "") or ""}
+
+
+# ===== AI 첫 컷 메이커 — 소재+목적+요청 → 프로젝트 구성안 =====
+PLAN_SYSTEM = """너는 한국어 영상 디렉터다. 사용자가 올린 소재(사진/영상)와 목적·요청을 받아
+'첫 컷' 구성안을 순수 JSON 1개로만 출력한다(설명·코드펜스 금지).
+
+형식: {"scenes":[{"text":"장면 자막/내레이션 한 줄(짧게)","dur":3.0}, ...],
+  "hook":"도입에 크게 띄울 한 줄(선택)","music":true,
+  "grade":{"brightness":1.0,"contrast":1.0,"saturation":1.0,"warmth":0.0}}
+
+규칙:
+- scenes 개수는 '소재 개수'와 같게(각 소재 1장면). 각 text는 8~20자 한국어.
+- 목적이 숏폼이면 임팩트 있게 짧고, 유튜브 홍보면 정보전달형, 정사각이면 간결.
+- grade는 분위기에 맞게(감성=따뜻 warmth 0.3, 선명=contrast 1.1 saturation 1.3, 차분=낮게). 범위는 brightness/contrast/saturation 0.5~1.6, warmth -1~1.
+- 참고 URL/스타일이 주어지면 그 톤을 반영(직접 분석은 못 하니 설명·제목 기반 추정).
+- 요청이 비면 소재·목적에 맞는 합리적 기본."""
+
+
+def _plan_fallback(media: list, request: str, n: int) -> dict:
+    """LLM 없을 때 규칙기반 구성안 — 요청 문장 분배 + 기본값."""
+    req = (request or "").strip()
+    import re as _re
+    sents = [s.strip() for s in _re.split(r"[.!?\n·]", req) if s.strip()]
+    scenes = []
+    for i in range(n):
+        t = sents[i] if i < len(sents) else (sents[i % len(sents)] if sents else "")
+        scenes.append({"text": t, "dur": 3.0})
+    warm = 0.3 if _re.search(r"감성|따뜻|여행|일상|brunch|vlog|브이로그", req) else 0.0
+    return {"scenes": scenes, "hook": (sents[0] if sents else ""), "music": True,
+            "grade": {"brightness": 1.0, "contrast": 1.08, "saturation": 1.15, "warmth": warm}}
+
+
+def plan_project(goal: str, fmt: str, media: list, request: str,
+                 template: str = "", ref_url: str = "") -> dict:
+    """목적·소재·요청 → 첫 컷 구성안 {scenes,hook,music,grade,provider}. CLI→DeepSeek→규칙."""
+    n = max(1, len(media))
+    kinds = ", ".join(f"{i+1}.{m.get('kind','?')}" for i, m in enumerate(media))
+    prompt = (f"목적={goal}, 형식={fmt}, 소재 {n}개({kinds}).\n"
+              f"템플릿/스타일={template or '없음'}, 참고={ref_url or '없음'}.\n"
+              f"요청: {request or '(비어있음 — 알아서 멋지게)'}\n"
+              f"scenes는 정확히 {n}개로.")
+    errs = []
+    if _claude_available():
+        try:
+            return {**_plan_parse(_claude_cli_plan(prompt), n), "provider": "claude-cli"}
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"cli:{e}")
+    k = keys().get("deepseek")
+    if k:
+        try:
+            return {**_plan_parse(_deepseek_plan(prompt, k), n), "provider": "deepseek"}
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"ds:{e}")
+    return {**_plan_fallback(media, request, n), "provider": "rule"}
+
+
+def _claude_cli_plan(prompt: str) -> str:
+    proc = subprocess.run(
+        ["claude", "-p", prompt, "--append-system-prompt", PLAN_SYSTEM, "--model", "haiku"],
+        capture_output=True, text=True, timeout=120, cwd="/tmp")
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or "claude cli 실패")[-200:])
+    return proc.stdout
+
+
+def _deepseek_plan(prompt: str, key: str) -> str:
+    body = json.dumps({"model": "deepseek-chat",
+                       "messages": [{"role": "system", "content": PLAN_SYSTEM},
+                                    {"role": "user", "content": prompt}],
+                       "temperature": 0.5, "stream": False}).encode()
+    req = urllib.request.Request("https://api.deepseek.com/chat/completions", data=body,
+                                 headers={"Authorization": f"Bearer {key}",
+                                          "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return json.loads(r.read())["choices"][0]["message"]["content"]
+
+
+def _plan_parse(raw: str, n: int) -> dict:
+    obj = _extract_json(raw)
+    scenes = obj.get("scenes") if isinstance(obj, dict) else None
+    if not isinstance(scenes, list) or not scenes:
+        scenes = [{"text": "", "dur": 3.0}]
+    out = []
+    for i in range(n):                                  # 소재 수에 정확히 맞춤
+        s = scenes[i] if i < len(scenes) else scenes[-1]
+        out.append({"text": str(s.get("text", "") if isinstance(s, dict) else s)[:40],
+                    "dur": float(s.get("dur", 3.0)) if isinstance(s, dict) else 3.0})
+    g = obj.get("grade") if isinstance(obj.get("grade"), dict) else {}
+    grade = {"brightness": float(g.get("brightness", 1.0)), "contrast": float(g.get("contrast", 1.0)),
+             "saturation": float(g.get("saturation", 1.0)), "warmth": float(g.get("warmth", 0.0))}
+    return {"scenes": out, "hook": str(obj.get("hook", ""))[:40],
+            "music": bool(obj.get("music", True)), "grade": grade}
