@@ -277,6 +277,12 @@
         <div style="font-size:11px;color:var(--dim);margin:14px 0 5px">④ 요청 한 줄 (비우면 AI 추천)</div>
         <textarea id="acReq" placeholder="예: 가을 제주 여행, 감성적으로 · 카페 홍보, 메뉴 강조 · 신제품 소개 30초" style="min-height:50px"></textarea>
         <input type="text" id="acRef" placeholder="참고 링크 URL (선택) — 제목·설명을 톤 힌트로만 사용(영상 분석 X)" style="margin-top:8px;font-size:11px">
+        <div class="row" style="gap:8px;margin-top:8px;align-items:center">
+          <button class="btn ghost sm" id="acRefImgBtn" type="button">🎨 참고 이미지</button>
+          <input type="file" id="acRefImg" accept="image/*" class="hide">
+          <span id="acRefImgName" class="hint" style="flex:1">선택 시 색감(팔레트)만 톤 힌트로 사용 · 내용분석 X</span>
+          <span id="acPalette" style="display:flex;gap:3px"></span>
+        </div>
         <div class="row" style="gap:12px;margin:10px 0;align-items:center">
           <label class="ck"><input type="checkbox" id="acMusic" checked> 배경음악</label>
           <span style="font-size:11px;color:var(--dim)">🎙 성우</span>
@@ -571,17 +577,23 @@ function renderAcThumbs(){const box=$("#acFiles");box.innerHTML="";
     x.onclick=(ev)=>{ev.stopPropagation();acFiles.splice(i,1);renderAcThumbs();$("#acGen").disabled=acFiles.length===0;};
     t.appendChild(x);strip.appendChild(t);});
   box.appendChild(strip);}
-let ACPLAN=null;   // {id, plan, media}
+let ACPLAN=null,acRefImg=null;   // {id, plan, media}
+$("#acRefImgBtn").onclick=()=>$("#acRefImg").click();
+$("#acRefImg").onchange=()=>{acRefImg=$("#acRefImg").files[0]||null;
+  $("#acRefImgName").textContent=acRefImg?("참고 이미지: "+acRefImg.name+" (색감만 사용)"):"선택 시 색감만 톤 힌트로 · 내용분석 X";};
+function showPalette(pal){const b=$("#acPalette");b.innerHTML="";(pal||[]).forEach(c=>{const s=document.createElement("span");
+  s.style.cssText="width:16px;height:16px;border-radius:4px;border:1px solid var(--line);background:"+c;b.appendChild(s);});}
 // 1단계: 구성안(대본) 생성 → 검토 모달
 $("#acGen").onclick=async()=>{if(!acFiles.length)return;$("#acGen").disabled=true;
   const fd=new FormData();fd.append("goal",acGoal);fd.append("request",$("#acReq").value||"");
   fd.append("template",acTpl);fd.append("ref_url",$("#acRef").value||"");fd.append("duration",String(acLen));
+  if(acRefImg)fd.append("ref_image",acRefImg);
   acFiles.forEach(f=>fd.append("files",f));
   $("#acMsg").innerHTML="<span class=spin></span>AI가 대본·구성을 짜는 중…";
   try{const r=await fetch("/api/autocut/plan",{method:"POST",body:fd});const j=await r.json();
     $("#acGen").disabled=false;
     if(j.error){$("#acMsg").textContent="실패: "+j.error;return;}
-    ACPLAN=j;openAcReview();$("#acMsg").textContent="구성안을 확인하세요";
+    ACPLAN=j;showPalette(j.palette);openAcReview();$("#acMsg").textContent="구성안을 확인하세요";
   }catch(e){$("#acGen").disabled=false;$("#acMsg").textContent="실패: "+e;}};
 // 검토 모달 채우기
 function openAcReview(){const p=ACPLAN.plan;$("#acProvider").textContent="(AI: "+(p.provider||"?")+")";

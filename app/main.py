@@ -182,10 +182,29 @@ async def process(id: str) -> StreamingResponse:
 _AC_DIMS = {"shorts": (1080, 1920), "square": (1080, 1080), "wide": (1920, 1080)}
 
 
+def _palette(path: str, n: int = 4):
+    """이미지 주요색 n개 추출(팔레트). + 따뜻함 추정. (내용분석 아님, 색감만)"""
+    try:
+        from PIL import Image
+        im = Image.open(path).convert("RGB").resize((96, 96))
+        q = im.quantize(colors=max(2, n)).convert("RGB")
+        cols = sorted(q.getcolors(96 * 96) or [], reverse=True)[:n]
+        rgb = [c[1] for c in cols]
+        hexes = ["#%02x%02x%02x" % c for c in rgb]
+        if rgb:
+            warm = sum(c[0] - c[2] for c in rgb) / len(rgb) / 255.0   # R-B 평균
+        else:
+            warm = 0.0
+        return hexes, max(-0.5, min(0.5, round(warm, 3)))
+    except Exception:  # noqa: BLE001
+        return [], 0.0
+
+
 @app.post("/api/autocut/plan")
 async def autocut_plan(goal: str = Form("shorts"), request: str = Form(""),
                        template: str = Form(""), ref_url: str = Form(""), duration: str = Form("0"),
-                       files: List[UploadFile] = File(...)) -> JSONResponse:
+                       files: List[UploadFile] = File(...),
+                       ref_image: UploadFile | None = File(None)) -> JSONResponse:
     """1단계 — 소재 업로드 + AI 구성안 생성(렌더 X). 대본/장면을 돌려줘 사용자가 확정."""
     import asyncio
     from . import llm
@@ -207,9 +226,21 @@ async def autocut_plan(goal: str = Form("shorts"), request: str = Form(""),
         tsec = float(duration or 0)
     except ValueError:
         tsec = 0
-    plan = await asyncio.to_thread(llm.plan_project, fmt, fmt, saved, request, template, ref_url, tsec)
-    AUTOCUT_PLAN[jid] = {"fmt": fmt, "media": saved, "plan": plan, "template": template}
-    return JSONResponse({"id": jid, "plan": plan, "template": template,
+    # 참고 이미지 → 색감 팔레트 추출(내용분석 아님). 톤 힌트 + warmth 넛지.
+    palette, ref_warm, ref_tone = [], 0.0, ""
+    if ref_image is not None and ref_image.filename:
+        rp = config.UPLOAD_DIR / f"{jid}_ref_{ref_image.filename}"
+        with open(rp, "wb") as f:
+            while chunk := await ref_image.read(1 << 20):
+                f.write(chunk)
+        palette, ref_warm = await asyncio.to_thread(_palette, str(rp))
+        if palette:
+            ref_tone = f"참고 이미지 주요색 {', '.join(palette)} ({'따뜻한' if ref_warm > 0.04 else '차분한' if ref_warm < -0.04 else '중간'} 톤)"
+    ref_arg = (ref_url + (" / " + ref_tone if ref_tone else "")).strip(" /")
+    plan = await asyncio.to_thread(llm.plan_project, fmt, fmt, saved, request, template, ref_arg, tsec)
+    AUTOCUT_PLAN[jid] = {"fmt": fmt, "media": saved, "plan": plan, "template": template,
+                         "ref_warm": ref_warm, "palette": palette}
+    return JSONResponse({"id": jid, "plan": plan, "template": template, "palette": palette,
                          "media": [{"kind": m["kind"], "name": m["name"]} for m in saved]})
 
 
@@ -236,6 +267,9 @@ async def autocut_render(req: Request) -> JSONResponse:
     from . import templates as _tpl
     tid = body.get("template") or st.get("template") or ""
     tp = _tpl.apply(tid, load_brandkit())               # 템플릿+브랜드 → 빌드 파라미터
+    rw = float(st.get("ref_warm") or 0)                 # 참고 이미지 색감 → warmth 넛지
+    if rw and tp.get("grade"):
+        tp["grade"]["warmth"] = max(-1.0, min(1.0, float(tp["grade"].get("warmth", 0)) + rw))
     AUTOCUT[jid] = {"pct": 0.0, "done": False, "res": None, "extras": None, "error": None}
 
     def _cb(p):
