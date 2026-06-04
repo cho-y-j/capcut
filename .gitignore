@@ -25,3 +25,4 @@ app/static/assets/
 .DS_Store
 *.swp
 config/
+server.log
