@@ -16,9 +16,13 @@ from . import llm
 
 def _key(name: str) -> str:
     try:
-        return (llm.keys().get(name) or "").strip()
+        from . import auth
+        return (auth.eff_key(name) or "").strip()   # 본인 키 우선 → 전역 폴백
     except Exception:  # noqa: BLE001
-        return ""
+        try:
+            return (llm.keys().get(name) or "").strip()
+        except Exception:  # noqa: BLE001
+            return ""
 
 
 def available() -> dict:

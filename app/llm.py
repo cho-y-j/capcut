@@ -37,6 +37,15 @@ JSON으로만 변환한다. 설명·코드펜스 없이 **순수 JSON 1개**만 
 액션은 만들지 마라. 실행 불가하면 actions=[] 로 두고 reply에 이유."""
 
 
+def _eff(name: str) -> str:
+    """현재 사용자 키 우선 → 전역(admin) 키 폴백."""
+    try:
+        from . import auth
+        return auth.eff_key(name)
+    except Exception:  # noqa: BLE001
+        return keys().get(name) or ""
+
+
 def keys() -> dict:
     out = {}
     try:
@@ -114,7 +123,7 @@ def assist(message: str, ctx: dict | None = None) -> dict:
             return {**_parse(_claude_cli(prompt)), "provider": "claude-cli"}
         except Exception as e:  # noqa: BLE001
             errs.append(f"claude-cli: {e}")
-    k = keys().get("deepseek")
+    k = _eff("deepseek")
     if k:
         try:
             return {**_parse(_deepseek(prompt, k)), "provider": "deepseek"}
@@ -165,7 +174,7 @@ def suggest_meta(script: str, fmt: str = "wide") -> dict:
                 return {**_rule_meta(script, fmt), **o, "provider": "claude-cli"}
         except Exception:  # noqa: BLE001
             pass
-    k = keys().get("deepseek")
+    k = _eff("deepseek")
     if k:
         try:
             o = _extract_json(_deepseek(prompt, k))
@@ -211,7 +220,7 @@ def translate_cues(texts, lang: str):
                 return arr
         except Exception:  # noqa: BLE001
             pass
-    k = keys().get("deepseek")
+    k = _eff("deepseek")
     if k:
         try:
             arr = _extract_array(_deepseek(prompt, k))
@@ -328,7 +337,7 @@ def plan_project(goal: str, fmt: str, media: list, request: str,
                 return {**_plan_parse(raw, n), "provider": "claude-cli"}
             except Exception as e:  # noqa: BLE001
                 errs.append(f"cli:{e}")
-    k = keys().get("deepseek")
+    k = _eff("deepseek")
     if k:
         try:
             return {**_plan_parse(_deepseek_plan(prompt, k), n), "provider": "deepseek"}

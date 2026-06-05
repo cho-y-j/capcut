@@ -35,9 +35,12 @@ app.mount("/out", StaticFiles(directory=str(config.OUTPUT_DIR)), name="out")
 async def _auth_ctx(request, call_next):
     """요청마다 현재 사용자 id를 컨텍스트에 — 작업 격리(owner) 기준."""
     try:
-        _CUR_UID.set(auth.uid_from_request(request))
+        uid = auth.uid_from_request(request)
+        _CUR_UID.set(uid)
+        auth.set_current(uid)          # 키 해석(본인키 우선)용
     except Exception:  # noqa: BLE001
         _CUR_UID.set(None)
+        auth.set_current(None)
     return await call_next(request)
 
 
@@ -79,6 +82,28 @@ async def auth_logout(req: Request) -> JSONResponse:
 async def auth_me() -> JSONResponse:
     u = auth.user_info(_CUR_UID.get())
     return JSONResponse({"user": u})
+
+
+@app.get("/api/me/keys")
+async def me_keys() -> JSONResponse:
+    """본인 설정 — 키 상태(본인/전역폴백) + 임베딩용 API 키. 원문 키는 반환 안 함."""
+    uid = _CUR_UID.get()
+    if not uid:
+        return JSONResponse({"error": "로그인이 필요해요"}, status_code=401)
+    from . import llm
+    info = auth.user_info(uid)
+    return JSONResponse({"api_key": info.get("api_key") if info else None,
+                         "status": auth.eff_status(uid), "claude_cli": llm._claude_available()})
+
+
+@app.post("/api/me/keys")
+async def me_keys_save(req: Request) -> JSONResponse:
+    uid = _CUR_UID.get()
+    if not uid:
+        return JSONResponse({"error": "로그인이 필요해요"}, status_code=401)
+    b = await req.json()
+    auth.set_user_keys(uid, {k: b.get(k) for k in auth.KEY_NAMES})
+    return JSONResponse({"ok": True, "status": auth.eff_status(uid)})
 
 JOBS: Dict[str, dict] = {}
 EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
@@ -1464,7 +1489,9 @@ async def assist(req: Request) -> JSONResponse:
 @app.get("/api/llm/status")
 async def llm_status() -> JSONResponse:
     from . import llm
-    return JSONResponse(llm.status())
+    es = auth.eff_status(_CUR_UID.get())
+    return JSONResponse({"claude_cli": llm._claude_available(),
+                         "deepseek": es["deepseek"]["on"]})
 
 
 @app.get("/api/admin", response_class=HTMLResponse)
@@ -1502,7 +1529,7 @@ button{{background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:10px
 <p>Claude CLI: <b>{cli}</b><br>DeepSeek: <b>{ds}</b></p>
 </div>
 <div class=card>
-<p>DeepSeek API 키 (폴백용)</p>
+<p>DeepSeek API 키 — <b>전역 기본키</b> (사용자가 본인 키를 안 넣으면 이게 쓰임)</p>
 <input id=ds type=password placeholder="sk-...">
 <button onclick="save()">저장</button> <span id=msg class=s></span>
 <p class=s style=margin-top:10px>키는 서버 config/keys.json에 저장(깃 비추적). 입력 후 Claude CLI가 안 되면 자동으로 DeepSeek 사용.</p>

@@ -282,6 +282,19 @@ const run = async () => {
   const acc3 = await p.evaluate(() => acFiles.length);
   ok(acc2 === 2 && acc3 === 2, '연속 추가 누적(+중복 제외)', `${acc2}→${acc3}`);
 
+  // --- 7m. 내 설정(계정별 키) ---
+  console.log('[7m] 내 설정/계정별 키');
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.waitForTimeout(400);
+  const setVisible = await p.evaluate(() => !document.querySelector('#setBtn').classList.contains('hide'));
+  await p.evaluate(() => openSettings());
+  await p.waitForTimeout(400);
+  const apiShown = await p.evaluate(() => (document.querySelector('#setApiKey').value || '').length > 10);
+  await p.evaluate(() => { document.querySelector('#setDs').value = 'sk-e2eOWN'; document.querySelector('#setSave').click(); });
+  await p.waitForTimeout(500);
+  const saved = await p.evaluate(async () => (await (await fetch('/api/me/keys')).json()).status.deepseek);
+  ok(setVisible && apiShown && saved.own === true, '내 설정: API키 표시 + 내 DeepSeek 저장(own)', JSON.stringify(saved));
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));

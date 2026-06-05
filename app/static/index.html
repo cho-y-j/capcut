@@ -275,10 +275,32 @@
     <div class="hint" id="auMsg" style="margin-top:10px;min-height:16px"></div>
   </div>
 </div>
+<!-- 내 설정(키·API) -->
+<div id="setModal" class="modal hide" style="z-index:160">
+  <div class="modalcard" style="max-width:440px">
+    <h2>⚙ 내 설정</h2>
+    <p class="s">내 키를 넣으면 내 할당량으로 동작해요. 비우면 서버 기본키로 동작(있으면).</p>
+    <div class="seg" style="margin:6px 0 10px">
+      <div class="s" style="margin-bottom:4px">🔑 내 API 키 (다른 프로그램 임베딩용)</div>
+      <div class="row" style="gap:6px"><input id="setApiKey" readonly style="flex:1;font-size:11px">
+        <button class="btn ghost sm" id="setApiCopy">복사</button></div>
+      <div class="hint" id="setEmbed" style="margin-top:4px"></div>
+    </div>
+    <div class="s" id="setStat" style="margin-bottom:8px"></div>
+    <input id="setDs" type="password" placeholder="DeepSeek API 키 (선택)" style="margin-bottom:6px">
+    <input id="setPex" type="password" placeholder="Pexels API 키 (선택)" style="margin-bottom:6px">
+    <input id="setPix" type="password" placeholder="Pixabay API 키 (선택)" style="margin-bottom:6px">
+    <div class="row" style="justify-content:space-between;margin-top:8px">
+      <span class="hint" id="setMsg"></span>
+      <span><button class="btn ghost" id="setCancel">닫기</button> <button class="btn" id="setSave">저장</button></span>
+    </div>
+  </div>
+</div>
 <div class="wrap">
   <header><span class="dot" style="background:var(--accent);box-shadow:0 0 8px 1px var(--accent)"></span>
     <h1>ONCUT</h1><span class="chip num">v0.27.0</span><span class="chip">AI 영상 편집</span>
-    <span id="userChip" class="chip hide" style="margin-left:auto;cursor:pointer" title="로그아웃"></span></header>
+    <span id="setBtn" class="chip hide" style="margin-left:auto;cursor:pointer" title="내 설정(키·API)">⚙ 내 설정</span>
+    <span id="userChip" class="chip hide" style="cursor:pointer" title="로그아웃"></span></header>
   <p class="sub">영상 던지고 체크만 → AI가 컷·자막·정리 자동 · 그다음 보면서 오른쪽 버튼으로 톡톡 편집 · 全 OS</p>
 
   <!-- 시작 화면 -->
@@ -733,7 +755,28 @@ async function checkAuth(){try{ME=(await(await fetch("/api/auth/me")).json()).us
   $("#authGate").classList.remove("hide");return false;}
 function showUserChip(){const c=$("#userChip");if(!c||!ME)return;if(EMBED){c.classList.add("hide");return;}
   c.textContent="👤 "+(ME.email||"내 계정");c.classList.remove("hide");
-  c.onclick=async()=>{if(confirm("로그아웃 할까요?")){await fetch("/api/auth/logout",{method:"POST"});location.reload();}};}
+  c.onclick=async()=>{if(confirm("로그아웃 할까요?")){await fetch("/api/auth/logout",{method:"POST"});location.reload();}};
+  const s=$("#setBtn");if(s)s.classList.remove("hide");}
+// ⚙ 내 설정 (계정별 키 + 임베딩 API 키)
+async function openSettings(){$("#setModal").classList.remove("hide");$("#setMsg").textContent="";
+  $("#setDs").value="";$("#setPex").value="";$("#setPix").value="";
+  try{const j=await(await fetch("/api/me/keys")).json();
+    $("#setApiKey").value=j.api_key||"";
+    $("#setEmbed").innerHTML='이 키로 임베딩: <code>?embed=1&key=…</code> 또는 헤더 <code>X-API-Key</code>';
+    const st=j.status||{},lbl=k=>st[k]?(st[k].own?"✅ 내 키":(st[k].on?"🌐 서버 기본키":"❌ 없음")):"❌ 없음";
+    $("#setStat").innerHTML="현재: DeepSeek "+lbl("deepseek")+" · Pexels "+lbl("pexels")+" · Pixabay "+lbl("pixabay")+(j.claude_cli?" · Claude CLI ✅(서버)":"");
+  }catch(e){$("#setStat").textContent="상태 로드 실패";}}
+const _qs=s=>document.querySelector(s);
+const _setB=_qs("#setBtn");if(_setB)_setB.onclick=openSettings;
+const _setC=_qs("#setCancel");if(_setC)_setC.onclick=()=>_qs("#setModal").classList.add("hide");
+const _setCp=_qs("#setApiCopy");if(_setCp)_setCp.onclick=()=>{const v=_qs("#setApiKey").value;if(v&&navigator.clipboard){navigator.clipboard.writeText(v);_setCp.textContent="복사됨";setTimeout(()=>_setCp.textContent="복사",1200);}};
+const _setS=_qs("#setSave");if(_setS)_setS.onclick=async()=>{_qs("#setMsg").textContent="저장 중…";
+  try{const r=await fetch("/api/me/keys",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({deepseek:_qs("#setDs").value,pexels:_qs("#setPex").value,pixabay:_qs("#setPix").value})});
+    const j=await r.json();if(j.error){_qs("#setMsg").textContent=j.error;return;}
+    _qs("#setMsg").textContent="저장됨 ✓";setTimeout(()=>{_qs("#setModal").classList.add("hide");openSettings();},700);
+  }catch(e){_qs("#setMsg").textContent="실패: "+e;}};
+const _setM=_qs("#setModal");if(_setM)_setM.onclick=e=>{if(e.target.id==="setModal")_setM.classList.add("hide");};
 let AUMODE="signup";
 document.querySelectorAll("#authTabs [data-au]").forEach(b=>b.onclick=()=>{AUMODE=b.dataset.au;
   document.querySelectorAll("#authTabs [data-au]").forEach(x=>x.classList.toggle("on",x.dataset.au===AUMODE));

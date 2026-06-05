@@ -11,12 +11,19 @@ import hashlib
 import json
 import secrets
 import time
+from contextvars import ContextVar
 from pathlib import Path
 
 from . import config
 
 AUTH_FILE = config.BASE_DIR / "config" / "users.json"
 _cache: dict | None = None
+_CUR: ContextVar = ContextVar("auth_uid", default=None)
+KEY_NAMES = ("deepseek", "pexels", "pixabay")
+
+
+def set_current(uid) -> None:
+    _CUR.set(uid)
 
 
 def _load() -> dict:
@@ -123,6 +130,54 @@ def list_users() -> list:
     d = _load()
     return [{"id": uid, "email": u["email"], "created": u.get("created", 0)}
             for uid, u in sorted(d["users"].items(), key=lambda kv: -kv[1].get("created", 0))]
+
+
+def get_user_keys(uid: str | None) -> dict:
+    if not uid:
+        return {}
+    return dict(((_load()["users"].get(uid) or {}).get("keys")) or {})
+
+
+def set_user_keys(uid: str | None, d: dict) -> None:
+    """본인 키 저장. 값 비우면 해당 키 삭제(전역 폴백으로 되돌림)."""
+    if not uid:
+        return
+    u = _load()["users"].get(uid)
+    if not u:
+        return
+    k = u.setdefault("keys", {})
+    for name in KEY_NAMES:
+        if name in d:
+            v = (d.get(name) or "").strip()
+            if v:
+                k[name] = v
+            else:
+                k.pop(name, None)
+    _save()
+
+
+def _global_keys() -> dict:
+    try:
+        from . import llm
+        return llm.keys() or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def eff_key(name: str, uid=None) -> str:
+    """키 해석: 본인 키 우선 → 전역(admin) 기본키 → 없음."""
+    uid = _CUR.get() if uid is None else uid
+    uk = get_user_keys(uid)
+    if uk.get(name):
+        return uk[name]
+    return (_global_keys().get(name) or "")
+
+
+def eff_status(uid=None) -> dict:
+    uid = _CUR.get() if uid is None else uid
+    uk = get_user_keys(uid)
+    g = _global_keys()
+    return {n: {"on": bool(uk.get(n) or g.get(n)), "own": bool(uk.get(n))} for n in KEY_NAMES}
 
 
 def delete_user(uid: str) -> None:
