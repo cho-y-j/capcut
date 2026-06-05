@@ -237,6 +237,18 @@ const run = async () => {
     !document.querySelector('#start').classList.contains('hide'), { timeout: 8000 }).then(() => true).catch(() => false);
   ok(home, '홈→에디터 숨김+랜딩 표시(작업 자동저장)');
 
+  // --- 7j. 미리보기 클릭→클립 선택 + 배경 띠 제거 ---
+  console.log('[7j] 클립 선택/배경 제거');
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.evaluate(SET_A); await p.evaluate(() => { A.playIdx = 0; A.layout = { videoY: .12, videoH: .6, bg: '#1f1d3d' }; redraw(); });
+  await p.evaluate(() => { const st = document.querySelector('.stage'); st.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  const selClip = await p.evaluate(() => A.sel && A.sel.type === 'clip');
+  ok(selClip, '미리보기 클릭→클립 선택');
+  const hadLayout = await p.evaluate(() => !!A.layout);
+  await p.evaluate(() => { const b = document.querySelector('#fC_nobg'); if (b) b.click(); });
+  const noLayout = await p.evaluate(() => A.layout === null);
+  ok(hadLayout && noLayout, '배경 띠 제거 버튼 동작');
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));
