@@ -176,6 +176,52 @@ def suggest_meta(script: str, fmt: str = "wide") -> dict:
     return _rule_meta(script, fmt)
 
 
+_LANGS = {"en": "영어", "ja": "일본어", "zh": "중국어(간체)", "es": "스페인어",
+          "vi": "베트남어", "id": "인도네시아어", "fr": "프랑스어", "th": "태국어",
+          "ko": "한국어"}
+
+
+def _extract_array(text: str):
+    """LLM 출력에서 JSON 문자열 배열 추출."""
+    import json
+    import re
+    m = re.search(r"\[.*\]", text, re.S)
+    if not m:
+        return None
+    try:
+        arr = json.loads(m.group(0))
+        return [str(x) for x in arr] if isinstance(arr, list) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def translate_cues(texts, lang: str):
+    """자막 문자열 리스트 → 같은 길이의 번역 리스트. LLM 없으면 None."""
+    texts = [str(t or "") for t in texts]
+    if not texts:
+        return []
+    name = _LANGS.get(lang, lang)
+    import json
+    prompt = (f"다음 자막들을 {name}로 자연스럽게 번역해라. 줄 수·순서 그대로 유지하고 "
+              f"JSON 문자열 배열로만 출력(설명 금지):\n{json.dumps(texts, ensure_ascii=False)}")
+    if _claude_available():
+        try:
+            arr = _extract_array(_claude_cli(prompt))
+            if arr and len(arr) == len(texts):
+                return arr
+        except Exception:  # noqa: BLE001
+            pass
+    k = keys().get("deepseek")
+    if k:
+        try:
+            arr = _extract_array(_deepseek(prompt, k))
+            if arr and len(arr) == len(texts):
+                return arr
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
 def _parse(raw: str) -> dict:
     obj = _extract_json(raw)
     acts = obj.get("actions") if isinstance(obj, dict) else None

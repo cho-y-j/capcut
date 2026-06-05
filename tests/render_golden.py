@@ -160,6 +160,15 @@ def main() -> int:
     fxy = face.detect_focus(lrv)
     ok(fxy == (0.5, 0.5), "얼굴 없으면 중앙 기본값", str(fxy))
 
+    print("[10] 자막 번역(LLM 있을 때만)")
+    from app import llm  # noqa: E402
+    st = llm.status()
+    if not (st["claude_cli"] or st["deepseek"]):
+        print("  · LLM 미설정 — 번역 검사 스킵")
+    else:
+        tr = llm.translate_cues(["안녕하세요", "오늘은 좋은 날입니다"], "en")
+        ok(tr is not None and len(tr) == 2 and tr[0] != "안녕하세요", "KO→EN 2줄 번역", str(tr))
+
     print("\n" + ("✗ 실패 %d개: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS
                   else "전체 통과 ✓ — 렌더 골든(회전·비정사각·배경·텍스트스핀·에셋)"))
     return 1 if FAILS else 0

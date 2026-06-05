@@ -643,6 +643,23 @@ async def gen_thumbnail(req: Request) -> JSONResponse:
     return JSONResponse({"url": f"/out/{out.name}", "style": style})
 
 
+@app.post("/api/translate")
+async def translate_ep(req: Request) -> JSONResponse:
+    """자막 텍스트들을 목표 언어로 번역(AI). 길이·순서 유지."""
+    import asyncio
+    from . import llm
+    body = await req.json()
+    texts = body.get("texts") or []
+    lang = body.get("lang") or "en"
+    if not texts:
+        return JSONResponse({"error": "번역할 자막이 없어요"}, status_code=400)
+    out = await asyncio.to_thread(llm.translate_cues, texts, lang)
+    if out is None:
+        return JSONResponse({"error": "AI 번역 사용 불가 (Claude CLI/DeepSeek 키 필요 — /api/admin)"},
+                            status_code=503)
+    return JSONResponse({"texts": out, "lang": lang})
+
+
 @app.post("/api/titles")
 async def gen_titles(req: Request) -> JSONResponse:
     """대본/자막 → 제목·해시태그·설명 추천 (AI 있으면 AI, 없으면 규칙기반)."""

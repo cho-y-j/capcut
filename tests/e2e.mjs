@@ -185,6 +185,20 @@ const run = async () => {
   const hlsh = await p.evaluate(() => ({ fmt: A.format, clips: A.clips.length }));
   ok(hlsh.fmt === 'shorts' && hlsh.clips === 1, '후보 선택→9:16 숏폼 진입', JSON.stringify(hlsh));
 
+  // --- 7f. 자막 번역(LLM 있을 때만) ---
+  console.log('[7f] 자막 번역');
+  const tr = await p.evaluate(async () => {
+    const r = await fetch('/api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: ['안녕하세요', '구독 부탁해요'], lang: 'en' }) });
+    return { status: r.status, body: await r.json() };
+  });
+  if (tr.status === 503) {
+    ok(true, '번역: LLM 미설정 → graceful 503 (스킵)', '');
+  } else {
+    ok(tr.status === 200 && Array.isArray(tr.body.texts) && tr.body.texts.length === 2
+       && tr.body.texts[0] !== '안녕하세요', '번역: 2줄 영어로 변환', (tr.body.texts || []).join(' / '));
+  }
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));
