@@ -54,6 +54,7 @@ def pink_bbox(a, sub=None):
 
 def main() -> int:
     blk = str(TMP / "blk.mp4"); mk_video(blk)
+    mk_video(str(TMP / "long.mp4"), dur=20.0)   # e2e 숏폼 추출용(20초)
     rect = str(TMP / "rect.png"); shapes.make_shape("rect", rect, color="#ff3d8b", w=300, h=300)
 
     print("[1] 정적 회전 + 비정사각 오버레이")
@@ -98,6 +99,17 @@ def main() -> int:
 
     print("[5] 배경 16종 생성")
     ok(len(assets.backgrounds()) >= 16, "내장 배경 ≥16종", str(len(assets.backgrounds())))
+
+    print("[7] 숏폼 하이라이트 추출(에너지·통째·자막오프셋)")
+    from app import shortify  # noqa: E402
+    from app.silence import probe_duration  # noqa: E402
+    lp = str(TMP / "long.mp4"); ld = probe_duration(lp)
+    es, ee = shortify._energy_window(lp, ld, 8.0)
+    ok(abs((ee - es) - 8.0) < 1.5 and 0 <= es and ee <= ld + 0.5, "에너지 창 길이≈target & 범위내", f"{es:.1f}-{ee:.1f}/{ld:.1f}")
+    hs, he, sg = shortify.pick_highlight(lp, 30.0)
+    ok(hs == 0.0 and abs(he - ld) < 0.5 and sg is None, "target>길이면 통째(ASR 생략)", f"{hs}-{he:.1f}")
+    wc = shortify.window_cues([{"start": 13.0, "end": 15.0, "text": "하이"}], 12.0, 20.0)
+    ok(len(wc) == 1 and abs(wc[0]["start"] - 1.0) < .01, "창 자막 0기준 오프셋", str(wc))
 
     print("[6] 도형·이모지 PNG 생성")
     arr = str(TMP / "arrow.png"); shapes.make_shape("arrow", arr, color="#ff3d8b", w=400, h=140)

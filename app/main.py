@@ -297,6 +297,44 @@ async def autocut_status(id: str) -> JSONResponse:
     return JSONResponse(st)
 
 
+@app.post("/api/shortify")
+async def shortify_ep(target: str = Form("30"), goal: str = Form("shorts"),
+                      file: UploadFile = File(...)) -> JSONResponse:
+    """긴 영상 업로드 → AI가 하이라이트 구간 골라 9:16 숏폼 클립으로 편집기에 핸드오프."""
+    import asyncio
+    from . import shortify
+    jid = uuid.uuid4().hex[:12]
+    ext = Path(file.filename or "v.mp4").suffix or ".mp4"
+    dest = config.UPLOAD_DIR / f"{jid}_short{ext}"
+    with open(dest, "wb") as out:
+        while chunk := await file.read(1 << 20):
+            out.write(chunk)
+    try:
+        tsec = max(8.0, min(90.0, float(target or 30)))
+    except ValueError:
+        tsec = 30.0
+    try:
+        from .silence import probe_video
+        mw, mh, mfps = await asyncio.to_thread(probe_video, str(dest))
+    except Exception:  # noqa: BLE001
+        mw, mh, mfps = 1280, 720, 30.0
+    try:
+        start, end, segs = await asyncio.to_thread(shortify.pick_highlight, str(dest), tsec)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"분석 실패: {e}"}, status_code=500)
+    cues = shortify.window_cues(segs, start, end)
+    JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "숏폼 자동추출"}
+    res = {"mode": "a", "duration": round(end - start, 2), "w": mw, "h": mh, "fps": mfps,
+           "clips": [{"srcIn": start, "srcEnd": end, "src": "0",
+                      "transition": {"type": "none", "dur": 0.5}}], "cuts": [], "cues": cues}
+    extras = {"format": goal if goal in _AC_DIMS else "shorts",
+              "clips": res["clips"], "srcMeta": {}}
+    JOBS[jid]["result"] = res
+    save_jobs()
+    return JSONResponse({"id": jid, "res": res, "extras": extras,
+                         "highlight": {"start": start, "end": end, "ai": bool(segs)}})
+
+
 @app.post("/api/raw_open")
 async def raw_open(goal: str = Form("wide"),
                    files: List[UploadFile] = File(...)) -> JSONResponse:

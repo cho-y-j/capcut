@@ -149,6 +149,18 @@ const run = async () => {
   const meta = await p.evaluate(async () => { const r = await fetch('/api/titles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: '제주도 여행 브이로그. 성산일출봉 바다가 예뻤어요. 카페 추천.', format: 'shorts' }) }); return r.json(); });
   ok(!!meta.title && Array.isArray(meta.hashtags) && meta.hashtags.length > 0, '제목·해시태그 추천 반환', `${meta.title} ${(meta.hashtags||[]).join('')}`);
 
+  // --- 7c. 긴 영상 → 숏폼 자동 추출 ---
+  console.log('[7c] 숏폼 자동 추출');
+  const LONG = process.env.TEST_VIDEO_LONG || '/tmp/oncut_golden/long.mp4';
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.evaluate(() => { document.querySelector('[data-mode="a"]').click(); }); // 토킹영상 탭
+  await p.waitForTimeout(200);
+  await p.setInputFiles('#shortFile', LONG);
+  await p.waitForFunction(() => { const e = document.querySelector('#editorA'); return e && !e.classList.contains('hide'); }, { timeout: 20000 });
+  await p.waitForTimeout(500);
+  const sh = await p.evaluate(() => ({ fmt: A.format, clips: A.clips.length, dur: A.duration }));
+  ok(sh.fmt === 'shorts' && sh.clips === 1, '숏폼 추출→9:16 단일 클립 진입', JSON.stringify(sh));
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));
