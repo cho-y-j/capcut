@@ -44,6 +44,29 @@ const run = async () => {
   const p = await b.newPage();
   p.on('pageerror', e => errs.push('PAGEERR: ' + e.message));
 
+  // --- 0. 로그인 게이트(새 컨텍스트=무로그인) ---
+  console.log('[0] 로그인 게이트/가입');
+  {
+    const ctx = await b.newContext(); const gp = await ctx.newPage();
+    await gp.goto(BASE, { waitUntil: 'networkidle' });
+    const gate = await gp.waitForFunction(() => { const g = document.querySelector('#authGate'); return g && !g.classList.contains('hide'); }, { timeout: 8000 }).then(() => true).catch(() => false);
+    ok(gate, '무로그인→로그인 게이트 표시');
+    const email = 'e2e_' + Date.now() + '@t.com';
+    await gp.evaluate(em => { const t = document.querySelector('#authTabs [data-au="signup"]'); if (t) t.click(); document.querySelector('#auEmail').value = em; document.querySelector('#auPw').value = '1234'; }, email);
+    await gp.click('#auGo');
+    const gone = await gp.waitForFunction(() => document.querySelector('#authGate').classList.contains('hide'), { timeout: 8000 }).then(() => true).catch(() => false);
+    const chip = await gp.evaluate(() => !document.querySelector('#userChip').classList.contains('hide'));
+    ok(gone && chip, '가입→게이트 사라짐+계정칩 표시');
+    await ctx.close();
+  }
+  // 이후 모든 테스트는 로그인 상태로(게이트가 UI 막음). 메인 컨텍스트 가입.
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.evaluate(async () => {
+    const body = JSON.stringify({ email: 'e2e_main@t.com', password: '1234' });
+    let r = await fetch('/api/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    if (!r.ok) await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  });
+
   // --- 1. 랜딩 로드 + 핵심 함수 존재 ---
   console.log('[1] 랜딩 로드 + 함수');
   await p.goto(BASE, { waitUntil: 'networkidle' });

@@ -12,7 +12,16 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import asr, assets, config, pipeline, stock, thumbnails, waveform
+from contextvars import ContextVar
+
+from . import asr, assets, auth, config, pipeline, stock, thumbnails, waveform
+
+_CUR_UID: ContextVar = ContextVar("cur_uid", default=None)
+
+
+def owner() -> str:
+    """현재 요청 사용자 id(없으면 'anon'). 사용자별 작업 격리 기준."""
+    return _CUR_UID.get() or "anon"
 
 config.ensure_dirs()
 assets.ensure_assets()
@@ -20,6 +29,56 @@ app = FastAPI(title="캡컷 에이전트")
 STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 app.mount("/out", StaticFiles(directory=str(config.OUTPUT_DIR)), name="out")
+
+
+@app.middleware("http")
+async def _auth_ctx(request, call_next):
+    """요청마다 현재 사용자 id를 컨텍스트에 — 작업 격리(owner) 기준."""
+    try:
+        _CUR_UID.set(auth.uid_from_request(request))
+    except Exception:  # noqa: BLE001
+        _CUR_UID.set(None)
+    return await call_next(request)
+
+
+@app.post("/api/auth/signup")
+async def auth_signup(req: Request) -> JSONResponse:
+    b = await req.json()
+    try:
+        uid = auth.signup(b.get("email"), b.get("password"))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    tok = auth.new_session(uid)
+    r = JSONResponse({"ok": True, "user": auth.user_info(uid)})
+    r.set_cookie("oncut_session", tok, max_age=60 * 60 * 24 * 90, httponly=True, samesite="lax")
+    return r
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: Request) -> JSONResponse:
+    b = await req.json()
+    try:
+        tok = auth.login(b.get("email"), b.get("password"))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=401)
+    uid = auth._uid_by_session(tok)
+    r = JSONResponse({"ok": True, "user": auth.user_info(uid)})
+    r.set_cookie("oncut_session", tok, max_age=60 * 60 * 24 * 90, httponly=True, samesite="lax")
+    return r
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(req: Request) -> JSONResponse:
+    auth.logout(req.cookies.get("oncut_session"))
+    r = JSONResponse({"ok": True})
+    r.delete_cookie("oncut_session")
+    return r
+
+
+@app.get("/api/auth/me")
+async def auth_me() -> JSONResponse:
+    u = auth.user_info(_CUR_UID.get())
+    return JSONResponse({"user": u})
 
 JOBS: Dict[str, dict] = {}
 EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
@@ -92,7 +151,7 @@ async def upload(file: UploadFile = File(...)) -> JSONResponse:
     with open(dest, "wb") as f:
         while chunk := await file.read(1 << 20):
             f.write(chunk)
-    JOBS[job_id] = {"mode": "a", "path": str(dest), "filename": file.filename}
+    JOBS[job_id] = {"mode": "a", "path": str(dest), "filename": file.filename, "owner": owner()}
     save_jobs()
     return JSONResponse({"id": job_id, "filename": file.filename})
 
@@ -137,7 +196,7 @@ async def modeb_upload(script: str = Form(...),
         scenes.append(pipeline.Scene(text=text, image=image))
     # 모드 B 산출 = 편집 가능한 소스(자막 미번인). 모드 A와 같은 편집기로 들어간다.
     out = str(config.UPLOAD_DIR / f"{job_id}_modeb_src.mp4")
-    JOBS[job_id] = {"mode": "b", "scenes": scenes, "out": out}
+    JOBS[job_id] = {"mode": "b", "scenes": scenes, "out": out, "owner": owner()}
     save_jobs()
     return JSONResponse({"id": job_id, "scenes": len(scenes)})
 
@@ -273,6 +332,7 @@ async def autocut_render(req: Request) -> JSONResponse:
     if rw and tp.get("grade"):
         tp["grade"]["warmth"] = max(-1.0, min(1.0, float(tp["grade"].get("warmth", 0)) + rw))
     AUTOCUT[jid] = {"pct": 0.0, "done": False, "res": None, "extras": None, "error": None}
+    own = owner()
 
     def _cb(p):
         AUTOCUT[jid]["pct"] = max(AUTOCUT[jid]["pct"], min(0.99, p))
@@ -283,6 +343,7 @@ async def autocut_render(req: Request) -> JSONResponse:
                                                   plan, music, voice, _cb, tp, rate)
             if jid in JOBS:
                 JOBS[jid]["result"] = res        # /api/job 복원용(뒤로가기/새로고침 시 살아남음)
+                JOBS[jid]["owner"] = own
             AUTOCUT[jid].update(pct=1.0, done=True, res=res, extras=extras)
             save_jobs()
         except Exception as e:  # noqa: BLE001
@@ -327,7 +388,7 @@ async def shortify_ep(target: str = Form("30"), goal: str = Form("shorts"),
     cues = shortify.window_cues(segs, start, end)
     from . import face
     fx, fy = await asyncio.to_thread(face.detect_focus, str(dest), start, end)   # 인물 추적 크롭
-    JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "숏폼 자동추출"}
+    JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "숏폼 자동추출", "owner": owner()}
     res = {"mode": "a", "duration": round(end - start, 2), "w": mw, "h": mh, "fps": mfps,
            "clips": [{"srcIn": start, "srcEnd": end, "src": "0",
                       "transition": {"type": "none", "dur": 0.5}}], "cuts": [], "cues": cues}
@@ -367,7 +428,7 @@ async def highlights_ep(target: str = Form("30"), count: str = Form("3"),
         return JSONResponse({"error": f"분석 실패: {e}"}, status_code=500)
     HL[jid] = {"path": str(dest), "segs": segs, "dur": (wins[-1][1] if wins else 0),
                "w": mw, "h": mh, "fps": mfps}
-    JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "하이라이트"}
+    JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "하이라이트", "owner": owner()}
     cands = []
     for i, (s, e, sc) in enumerate(wins):
         thumb = config.OUTPUT_DIR / f"hlthumb_{jid}_{i}.jpg"
@@ -435,6 +496,7 @@ async def raw_open(goal: str = Form("wide"),
                                               False, None, lambda p: None, {"transition": "none"}, "+0%")
         if jid in JOBS:
             JOBS[jid]["result"] = res
+            JOBS[jid]["owner"] = owner()
         save_jobs()
         return JSONResponse({"id": jid, "res": res, "extras": extras})
     except Exception as e:  # noqa: BLE001
@@ -704,6 +766,8 @@ async def get_job(id: str) -> JSONResponse:
     job = JOBS.get(id)
     if not job or "result" not in job:
         return JSONResponse({"error": "unknown job"}, status_code=404)
+    if job.get("owner", "anon") != owner():           # 남의 작업 복원 차단
+        return JSONResponse({"error": "forbidden"}, status_code=403)
     return JSONResponse({"result": job["result"]})
 
 
@@ -720,7 +784,7 @@ async def draft_save(req: Request) -> JSONResponse:
         return JSONResponse({"error": "unknown job"}, status_code=404)
     _DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
     import time
-    rec = {"id": jid, "name": (body.get("name") or "무제 작업").strip()[:60],
+    rec = {"id": jid, "name": (body.get("name") or "무제 작업").strip()[:60], "owner": owner(),
            "savedAt": int(time.time()), "state": body.get("state") or {}}
     (_DRAFTS_DIR / f"{jid}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
     return JSONResponse({"ok": True, "id": jid})
@@ -731,11 +795,14 @@ async def draft_list() -> JSONResponse:
     """최근 작업 목록(최신순). 미디어(job)가 아직 살아있는 것만."""
     if not _DRAFTS_DIR.exists():
         return JSONResponse([])
+    me = owner()
     out = []
     for p in _DRAFTS_DIR.glob("*.json"):
         try:
             r = json.loads(p.read_text(encoding="utf-8"))
-            if r.get("id") in JOBS:                    # 미디어 사라진 작업은 숨김
+            if r.get("owner", "anon") != me:           # 본인 작업만
+                continue
+            if r.get("id") in JOBS:                     # 미디어 사라진 작업은 숨김
                 out.append({"id": r["id"], "name": r.get("name", "무제"), "savedAt": r.get("savedAt", 0)})
         except Exception:  # noqa: BLE001
             continue
@@ -748,13 +815,23 @@ async def draft_get(id: str) -> JSONResponse:
     p = _DRAFTS_DIR / f"{id}.json"
     if not p.exists():
         return JSONResponse({"error": "no draft"}, status_code=404)
-    return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    if rec.get("owner", "anon") != owner():
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    return JSONResponse(rec)
 
 
 @app.post("/api/draft/delete")
 async def draft_delete(req: Request) -> JSONResponse:
     body = await req.json()
     p = _DRAFTS_DIR / f"{body.get('id')}.json"
+    if p.exists():
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+            if rec.get("owner", "anon") != owner():
+                return JSONResponse({"error": "forbidden"}, status_code=403)
+        except Exception:  # noqa: BLE001
+            pass
     p.unlink(missing_ok=True)
     return JSONResponse({"ok": True})
 
@@ -1406,7 +1483,20 @@ h1{{font-size:16px}}.card{{background:#161616;border:1px solid #262626;border-ra
 input{{width:100%;background:#0e0e0e;border:1px solid #262626;color:#ededed;border-radius:8px;padding:10px;font-family:inherit;margin:6px 0}}
 button{{background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:10px 18px;font-weight:600;cursor:pointer}}
 .s{{color:#8a8a8a;font-size:12px}}.ok{{color:#22c55e}}</style></head><body>
-<h1>ONCUT 관리자 — AI 대화형 편집 설정</h1>
+<h1>ONCUT 관리자</h1>
+<div class=card>
+<h1 style=font-size:14px>👤 계정 관리</h1>
+<p class=s>무료 가입한 사용자 목록 · 작업은 사용자별로 격리됩니다(본인 것만 보임).</p>
+<div id=users class=s>불러오는 중…</div>
+</div>
+<div class=card>
+<h1 style=font-size:14px>🔗 다른 프로그램에 임베딩(2가지 길)</h1>
+<p class=s><b>① iframe 임베드</b> — 호스트 페이지에 끼워넣기. 사용자의 API 키를 붙이면 그 계정으로 바로:<br>
+<code>&lt;iframe src="https://이앱주소/?embed=1&amp;key=API_KEY"&gt;&lt;/iframe&gt;</code></p>
+<p class=s><b>② REST API</b> — 다른 프로그램이 직접 호출. 모든 요청 헤더에:<br>
+<code>X-API-Key: API_KEY</code> (또는 <code>Authorization: Bearer API_KEY</code>)</p>
+<p class=s>API 키는 각 사용자가 가입 시 자동 발급(위 목록의 🔑). 로그인하면 본인 화면에서도 확인 가능.</p>
+</div>
 <div class=card>
 <p class=s>대화형 편집은 <b>Claude CLI</b>를 먼저 쓰고, 만료·실패 시 <b>DeepSeek</b>로 자동 전환합니다.</p>
 <p>Claude CLI: <b>{cli}</b><br>DeepSeek: <b>{ds}</b></p>
@@ -1438,6 +1528,17 @@ button{{background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:10px
  <input id=tf type=file accept=.json style=display:inline;width:auto> <button onclick="upT()">업로드</button> <span id=umsg class=s></span></p>
 </div>
 <script>
+async function loadUsers(){{try{{const j=await(await fetch('/api/admin/users')).json();
+const el=document.getElementById('users');
+if(!j.users.length){{el.textContent='아직 가입한 사용자가 없어요.';return;}}
+el.innerHTML='<div style=margin-bottom:6px>총 '+j.total+'명</div>'+j.users.map(u=>
+  '<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px solid #222">'+
+  '<span style="flex:1">'+u.email+' · 작업 '+(u.drafts||0)+'개</span>'+
+  '<button data-id="'+u.id+'" class=del style="background:#3a1a1a;color:#f88;padding:4px 8px">삭제</button></div>').join('');
+el.querySelectorAll('.del').forEach(b=>b.onclick=async()=>{{if(!confirm('이 계정을 삭제할까요?'))return;
+  await fetch('/api/admin/users/delete',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id:b.dataset.id}})}});loadUsers();}});
+}}catch(e){{document.getElementById('users').textContent='목록 로드 실패';}}}}
+loadUsers();
 async function save(){{const k=document.getElementById('ds').value.trim();if(!k)return;
 const r=await fetch('/api/admin/keys',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{deepseek:k}})}});
 document.getElementById('msg').textContent=r.ok?'저장됨 ✓':'실패';document.getElementById('msg').className='ok';}}
@@ -1469,6 +1570,30 @@ async def admin_keys(req: Request) -> JSONResponse:
             upd[k] = v
     if upd:
         llm.save_keys(upd)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/admin/users")
+async def admin_users() -> JSONResponse:
+    """가입 계정 목록 + 사용자별 작업 수(계정 관리)."""
+    counts: dict = {}
+    if _DRAFTS_DIR.exists():
+        for p in _DRAFTS_DIR.glob("*.json"):
+            try:
+                o = json.loads(p.read_text(encoding="utf-8")).get("owner", "anon")
+                counts[o] = counts.get(o, 0) + 1
+            except Exception:  # noqa: BLE001
+                continue
+    us = auth.list_users()
+    for u in us:
+        u["drafts"] = counts.get(u["id"], 0)
+    return JSONResponse({"users": us, "total": len(us)})
+
+
+@app.post("/api/admin/users/delete")
+async def admin_user_delete(req: Request) -> JSONResponse:
+    b = await req.json()
+    auth.delete_user(b.get("id"))
     return JSONResponse({"ok": True})
 
 
