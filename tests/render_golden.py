@@ -169,6 +169,24 @@ def main() -> int:
         tr = llm.translate_cues(["안녕하세요", "오늘은 좋은 날입니다"], "en")
         ok(tr is not None and len(tr) == 2 and tr[0] != "안녕하세요", "KO→EN 2줄 번역", str(tr))
 
+    print("[11] 캡컷 드래프트(멀티트랙 draft_content.json)")
+    try:
+        import json as _json
+        from app import draft as _draft, subtitle as _sub  # noqa: E402
+        r = _draft.build_from_project(blk, [{"srcIn": 0, "srcEnd": 2, "src": "0"}], {"0": blk},
+            w=1080, h=1920, fps=30, cues=[_sub.Cue(0, 1.5, "자막")],
+            texts=[{"text": "타이틀", "x": .5, "y": .2, "fontSize": 60, "start": 0, "end": 2,
+                    "outlineW": 3, "color": "#ffffff", "bold": True}],
+            overlays=[{"path": rect, "x": .8, "y": .8, "scale": .2, "start": 0, "end": 2, "opacity": 1}],
+            draft_name="GOLDEN", out_root=str(TMP / "drafts"))
+        dc = Path(r["dir"]) / "draft_content.json"
+        ok(dc.exists() and r["segments"] >= 3 and not r["skipped"],
+           "draft_content.json 생성(영상+자막+텍스트+오버레이)", f"seg={r['segments']} skip={r['skipped']}")
+        types = [t.get("type") for t in _json.loads(dc.read_text()).get("tracks", [])]
+        ok(types.count("video") >= 2 and "text" in types, "멀티트랙(영상2+텍스트)", str(types))
+    except Exception as e:  # noqa: BLE001
+        ok(False, "캡컷 드래프트 빌드", str(e)[:80])
+
     print("\n" + ("✗ 실패 %d개: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS
                   else "전체 통과 ✓ — 렌더 골든(회전·비정사각·배경·텍스트스핀·에셋)"))
     return 1 if FAILS else 0

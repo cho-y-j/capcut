@@ -199,6 +199,20 @@ const run = async () => {
        && tr.body.texts[0] !== '안녕하세요', '번역: 2줄 영어로 변환', (tr.body.texts || []).join(' / '));
   }
 
+  // --- 7g. 캡컷 드래프트 내보내기 ---
+  console.log('[7g] 캡컷 드래프트');
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.setInputFiles('#shortFile', '/tmp/oncut_golden/long.mp4');
+  await p.waitForFunction(() => { const e = document.querySelector('#editorA'); return e && !e.classList.contains('hide'); }, { timeout: 20000 });
+  await p.waitForTimeout(500);
+  const cap = await p.evaluate(async () => {
+    A.texts.push({ id: ++cid, text: '캡컷 텍스트', x: .5, y: .3, fontSize: 60, start: 0, end: 3, outlineW: 3, color: '#ffffff', bold: true });
+    const r = await fetch('/api/capcut', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()) });
+    return { status: r.status, body: await r.json() };
+  });
+  ok(cap.status === 200 && cap.body.dir && cap.body.segments >= 1, '캡컷 드래프트 생성(dir+세그먼트)',
+     `${cap.body.segments}seg dir=${(cap.body.dir || '').split('/').pop()}`);
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));

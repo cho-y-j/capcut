@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Dict, List
@@ -1027,6 +1028,57 @@ def _resolve_pips(job: dict, body: dict) -> list:
                     "chromaKey": pp.get("chromaKey"), "chromaSim": pp.get("chromaSim", 0.3),
                     "mask": pp.get("mask")})
     return out
+
+
+@app.post("/api/capcut")
+async def export_capcut(req: Request) -> JSONResponse:
+    """편집기 전체 프로젝트 → 캡컷 드래프트(Win/Mac 핸드오프). 영상·자막·텍스트·
+    오버레이·오디오를 트랙으로. OUTPUT_DRAFT_DIR 없으면 OS Projects 폴더/out."""
+    import asyncio
+    from . import draft, render, subtitle
+    body = await req.json()
+    job = JOBS.get(body.get("id"))
+    if not job or "path" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    clips = _body_clips(body)
+    if not clips:
+        return JSONResponse({"error": "클립이 없어요"}, status_code=400)
+    srcs = job.get("sources") or {}
+    srcpaths = {"0": job["path"]}
+    for tok, info in srcs.items():
+        if info.get("path"):
+            srcpaths[str(tok)] = info["path"]
+    fmt = body.get("format") or "wide"
+    canvas = _canvas(fmt)
+    try:
+        from .silence import probe_video
+        sw, sh, sfps = probe_video(job["path"])
+    except Exception:  # noqa: BLE001
+        sw, sh, sfps = 1280, 720, 30.0
+    w, h = canvas if canvas else (sw, sh)
+    # 자막 → 출력 타임라인 remap
+    cues = None
+    if body.get("subtitles", True) and body.get("cues"):
+        layout, _ = render.clip_layout(clips)
+        cobjs = [subtitle.Cue(float(c["start"]), float(c["end"]), c["text"])
+                 for c in body["cues"] if (c.get("text") or "").strip()]
+        cues = subtitle.remap_cues_clips(cobjs, layout)
+    overlays = _resolve_overlays(job, body)
+    sfx = _resolve_sfx(job, body)
+    audios = _resolve_audios(job, body)
+    bgm = job.get("bgm") if body.get("bgm") else None
+    bvol = float((body.get("bgmOpts") or {}).get("volume", 0.16))
+    name = (body.get("draftName") or f"ONCUT_{body.get('id')}")[:48]
+    out_root = os.environ.get("OUTPUT_DRAFT_DIR") or None
+    try:
+        res = await asyncio.to_thread(draft.build_from_project, job["path"], clips, srcpaths,
+                                      w=w, h=h, fps=sfps, cues=cues, texts=body.get("texts") or [],
+                                      overlays=overlays, audios=audios, sfx=sfx, bgm=bgm,
+                                      bgm_volume=bvol, draft_name=name, out_root=out_root)
+    except Exception as e:  # noqa: BLE001
+        import traceback; traceback.print_exc()
+        return JSONResponse({"error": f"드래프트 생성 실패: {e}"}, status_code=500)
+    return JSONResponse(res)
 
 
 @app.post("/api/export")

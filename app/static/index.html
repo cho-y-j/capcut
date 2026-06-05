@@ -2164,9 +2164,18 @@ $("#exportA").onclick=()=>startJob("/api/export","/api/export/status","추출");
 $("#previewA").onclick=()=>startJob("/api/preview","/api/preview/status","미리보기");
 $("#resultClose").onclick=()=>{$("#result").classList.add("hide");const o=$("#outA");o.pause&&o.pause();};
 $("#result").onclick=e=>{if(e.target.id==="result")$("#resultClose").onclick();};
-$("#capcutA").onclick=async()=>{$("#msgA").textContent="캡컷 드래프트…";
-  const r=await fetch("/api/capcut",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
-  const j=await r.json();$("#msgA").textContent=j.dir?("캡컷: "+j.dir):"실패";};
+$("#capcutA").onclick=async()=>{$("#msgA").textContent="캡컷 드래프트 만드는 중…";
+  try{const r=await fetch("/api/capcut",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
+    const j=await r.json();
+    if(j.error){$("#msgA").textContent="캡컷 실패: "+j.error;return;}
+    const sk=(j.skipped&&j.skipped.length)?(" · 일부 생략 "+j.skipped.length+"개"):"";
+    $("#msgA").textContent="✅ 캡컷 드래프트 생성 ("+j.segments+"개 세그먼트)"+sk;
+    alert("캡컷 드래프트가 만들어졌어요 ✓\n\n폴더: "+j.dir+"\n세그먼트: "+j.segments+"개"+sk+
+      "\n\n이 폴더를 Win/Mac 캡컷 Projects 폴더로 복사하면 열려요:\n"+
+      "· Win: %LOCALAPPDATA%\\CapCut\\User Data\\Projects\\com.lveditor.draft\\\n"+
+      "· Mac: ~/Movies/CapCut/User Data/Projects/com.lveditor.draft/\n"+
+      "(영상 파일 경로가 그 PC에서도 유효해야 합니다 — 영상도 함께 복사)");
+  }catch(e){$("#msgA").textContent="캡컷 실패: "+e;}};
 
 let PENDING_RESTORE=null;
 async function tryRestore(){const raw=localStorage.getItem("capcut");if(!raw)return;
