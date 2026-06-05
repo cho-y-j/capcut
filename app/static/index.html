@@ -416,13 +416,14 @@
       <span class="hint" id="msgA"></span>
       <span class="hint" id="savedTag" style="opacity:.45">저장됨 ✓</span>
       <div class="tbright">
+        <button class="btn ghost sm" id="homeA" title="자동저장하고 홈으로(내 작업에서 다시 열 수 있어요)">🏠 홈</button>
         <button class="btn ghost sm" id="helpBtn" title="사용법">❔</button>
         <button class="btn ghost sm" id="previewA" title="전환·음량정규화까지 반영된 고화질 미리보기(서버 렌더). 빠른 확인은 좌측 ▶재생">▶ 미리보기</button>
         <button class="btn export" id="exportA">⬇ MP4 추출</button>
         <details class="more"><summary class="btn ghost sm">⋯</summary>
           <div class="morepop">
             <button class="btn ghost sm" id="capcutA">캡컷으로 보내기</button>
-            <button class="btn ghost sm" id="newA">↺ 새 영상</button>
+            <button class="btn ghost sm" id="newA">＋ 새 프로젝트</button>
           </div>
         </details>
       </div>
@@ -485,6 +486,7 @@
           <div class="addgrid">
             <button class="btn add sm" id="addGrade">🎨 색감</button>
             <button class="btn add sm" id="addCut">✂️ 자르기</button>
+            <button class="btn add sm" id="addTpl">🎨 템플릿 적용</button>
             <button class="btn add sm" id="addMeta">📋 제목·태그</button>
             <button class="btn add sm" id="addThumb">🖼 썸네일</button>
             <button class="btn add sm" id="addTrans">🌐 자막번역</button>
@@ -577,6 +579,17 @@
       <a id="thumbDl" class="btn sm" download="thumbnail.jpg" href="#" style="text-decoration:none">⬇ 다운로드</a>
       <button class="btn ghost" id="thumbCancel">닫기</button>
     </div>
+  </div>
+</div>
+
+<!-- 에디터 템플릿 적용 모달 -->
+<div class="modal hide" id="etplModal">
+  <div class="modalcard" style="max-width:640px;width:92vw">
+    <h2>🎨 템플릿 적용</h2>
+    <p class="s">고른 틀의 <b>색감·자막 스타일·상하 띠·아웃트로</b>를 지금 작업에 입혀요. (Ctrl+Z로 되돌리기)</p>
+    <label class="ck" style="display:inline-flex;gap:6px;align-items:center;margin-bottom:10px;font-size:12px"><input type="checkbox" id="etplCta" checked> 끝에 아웃트로 문구(CTA)도 추가</label>
+    <div id="etplGrid" class="tplgallery" style="max-height:55vh;overflow:auto"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="etplCancel">닫기</button></div>
   </div>
 </div>
 
@@ -1827,6 +1840,30 @@ async function translateCues(lang){if(!A.cues||!A.cues.length){$("#transMsg").te
     $("#transModal").classList.add("hide");$("#msgA").textContent="🌐 자막 번역 완료 ("+lang+") · 원문복원은 🌐에서";
   }catch(e){$("#transMsg").textContent="실패: "+e;}}
 const _amTr=$("#addTrans");if(_amTr)_amTr.onclick=showTrans;
+// 🎨 에디터 템플릿 적용 (랜딩 갤러리 재사용)
+async function showEditorTpl(){const g=$("#etplGrid");g.innerHTML="<div class='s'>불러오는 중…</div>";
+  $("#etplModal").classList.remove("hide");
+  try{if(!window._TPLS)window._TPLS=await(await fetch("/api/templates")).json();
+    g.innerHTML="";window._TPLS.forEach(t=>{const c=document.createElement("div");c.className="tplcard";c.title=t.desc||"";
+      try{c.appendChild(tplPreviewEl(t,false));}catch(e){}
+      const nm=document.createElement("div");nm.className="nm";nm.textContent=t.name+(t.custom?" ·내":"");c.appendChild(nm);
+      c.onclick=()=>applyTemplateToProject(t);g.appendChild(c);});
+  }catch(e){g.innerHTML="<div class='s'>템플릿을 못 불러왔어요</div>";}}
+function applyTemplateToProject(t){pushHistory();
+  if(t.grade)A.grade={brightness:t.grade.brightness||1,contrast:t.grade.contrast||1,saturation:t.grade.saturation||1,warmth:t.grade.warmth||0};
+  if(t.sub){const s=t.sub;if(s.fontSize)A.style.fontSize=s.fontSize;if(s.color)A.style.color=s.color;
+    if(s.outlineColor)A.style.outlineColor=s.outlineColor;if(s.outlineW!=null)A.style.outlineW=s.outlineW;if(s.align)A.style.align=s.align;}
+  if(t.layout&&t.layout.videoH){let bg=t.layout.bg;if(!bg||String(bg).indexOf("{{")>=0)bg="#1f1d3d";
+    A.layout={videoY:t.layout.videoY||0,videoH:t.layout.videoH,bg:bg};}else A.layout=null;
+  if(t.transition&&t.transition!=="none")A.clips.forEach((c,i)=>{if(i>0)c.transition={type:t.transition,dur:0.5};});
+  if($("#etplCta").checked&&t.outro&&t.cta){const tot=layout().total||0;
+    if(tot>2.2)A.texts.push({id:++cid,text:t.cta,x:.5,y:.5,fontSize:A.format==="shorts"?72:56,color:t.textColor||"#ffffff",
+      outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:Math.max(0,tot-2.2),end:tot,anim:"pop"});}
+  renderStage();redraw();renderInspector();if(window.applyGradeCss)applyGradeCss();if(window.applyLayoutCss)applyLayoutCss();save();
+  $("#etplModal").classList.add("hide");$("#msgA").textContent="🎨 템플릿 적용: "+t.name+" · 안 맞으면 Ctrl+Z";}
+const _amTp=$("#addTpl");if(_amTp)_amTp.onclick=showEditorTpl;
+const _etC=$("#etplCancel");if(_etC)_etC.onclick=()=>$("#etplModal").classList.add("hide");
+$("#etplModal")&&($("#etplModal").onclick=e=>{if(e.target.id==="etplModal")$("#etplModal").classList.add("hide");});
 const _trR=$("#transRevert");if(_trR)_trR.onclick=()=>{if(A._cuesBackup){pushHistory();A.cues=A._cuesBackup.map(c=>({...c}));A._cuesBackup=null;renderStage();redraw();renderInspector();save();$("#transModal").classList.add("hide");$("#msgA").textContent="원문 자막 복원";}else $("#transMsg").textContent="복원할 원문이 없어요.";};
 const _trC=$("#transCancel");if(_trC)_trC.onclick=()=>$("#transModal").classList.add("hide");
 $("#transModal")&&($("#transModal").onclick=e=>{if(e.target.id==="transModal")$("#transModal").classList.add("hide");});
@@ -1851,7 +1888,10 @@ const _sgM=$("#sgMore");if(_sgM)_sgM.onclick=async()=>{$("#msgA").textContent="A
 function splitAt(){const v=$("#srcA"),i=A.playIdx,c=A.clips[i];if(!c)return;const t=v.currentTime;
   if(t<=c.srcIn+0.1||t>=c.srcEnd-0.1){$("#msgA").textContent="클립 안에서 자를 위치로 이동하세요";return;}
   pushHistory();const right={id:++cid,srcIn:t,srcEnd:c.srcEnd,transition:{type:"none",dur:0.5}};c.srcEnd=t;A.clips.splice(i+1,0,right);redraw();save();}
-$("#newA").onclick=()=>{localStorage.removeItem("capcut");location.reload();};
+$("#newA").onclick=async()=>{await flushSave();localStorage.removeItem("capcut");location.reload();};
+$("#homeA").onclick=async()=>{$("#msgA").textContent="저장 중…";await flushSave();
+  $("#editorA").classList.add("hide");$("#start").classList.remove("hide");
+  try{loadRecent();}catch(e){}window.scrollTo(0,0);};
 
 // 프리셋 칩 (버튼 + 효과음)
 function renderPresetChips(){const box=$("#presetChips");box.innerHTML="";
@@ -2112,7 +2152,10 @@ function save(){if(!A)return;const st={id:A.id,format:A.format,subsOn:A.subsOn,s
   cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
   overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade},layout:A.layout,focus:A.focus};
   try{localStorage.setItem("capcut",JSON.stringify(st));}catch(e){}
+  const tg=$("#savedTag");if(tg){tg.textContent="저장 중…";tg.style.opacity="1";}
   clearTimeout(_draftT);_draftT=setTimeout(()=>serverSaveDraft(st),2500);}   // 서버 자동저장(디바운스)
+window._lastState=null;
+function flushSave(){if(!A)return;clearTimeout(_draftT);const st=JSON.parse(localStorage.getItem("capcut")||"null");if(st)return serverSaveDraft(st);}
 async function serverSaveDraft(st){try{await fetch("/api/draft/save",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({id:st.id,name:A._name||"무제 작업",state:st})});
   const t=$("#savedTag");if(t){t.textContent="저장됨 ✓";t.style.opacity="1";setTimeout(()=>t.style.opacity=".45",1500);}}catch(e){}}

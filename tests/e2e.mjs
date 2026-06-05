@@ -213,6 +213,30 @@ const run = async () => {
   ok(cap.status === 200 && cap.body.zip && /\.zip$/.test(cap.body.zip) && cap.body.segments >= 1,
      '캡컷 드래프트 ZIP(미디어포함) 생성', `${cap.body.segments}seg zip=${(cap.body.zip || '').split('/').pop()}`);
 
+  // --- 7h. 에디터 템플릿 적용 ---
+  console.log('[7h] 에디터 템플릿 적용');
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.setInputFiles('#fileC', VIDEO); await p.waitForTimeout(400);
+  await p.click('#acRaw');
+  await p.waitForFunction(() => { const e = document.querySelector('#editorA'); return e && !e.classList.contains('hide'); }, { timeout: 15000 });
+  await p.waitForTimeout(400);
+  await p.evaluate(() => showEditorTpl());
+  await p.waitForFunction(() => document.querySelectorAll('#etplGrid .tplcard').length > 0, { timeout: 8000 });
+  const tplN = await p.$$eval('#etplGrid .tplcard', e => e.length);
+  const tb = await p.evaluate(() => JSON.stringify({ g: A.grade, ly: A.layout }));
+  await p.evaluate(() => document.querySelector('#etplGrid .tplcard').click());
+  await p.waitForTimeout(300);
+  const ta = await p.evaluate(() => JSON.stringify({ g: A.grade, ly: A.layout }));
+  ok(tplN >= 1 && tb !== ta, '템플릿 적용→색감/레이아웃 변경', `${tplN}개 ${tb}→${ta}`.slice(0, 90));
+
+  // --- 7i. 홈(자동저장 후 랜딩) ---
+  console.log('[7i] 홈 버튼');
+  await p.evaluate(() => { $('#homeA').click(); });
+  const home = await p.waitForFunction(() =>
+    document.querySelector('#editorA').classList.contains('hide') &&
+    !document.querySelector('#start').classList.contains('hide'), { timeout: 8000 }).then(() => true).catch(() => false);
+  ok(home, '홈→에디터 숨김+랜딩 표시(작업 자동저장)');
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));
