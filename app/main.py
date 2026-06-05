@@ -1075,9 +1075,18 @@ async def export_capcut(req: Request) -> JSONResponse:
                                       w=w, h=h, fps=sfps, cues=cues, texts=body.get("texts") or [],
                                       overlays=overlays, audios=audios, sfx=sfx, bgm=bgm,
                                       bgm_volume=bvol, draft_name=name, out_root=out_root)
+        # 미디어 동봉 + 경로 치환 + ZIP (SaaS 다운로드용 — 캡컷에서 영상 안 깨지게)
+        zip_path = await asyncio.to_thread(draft.bundle_and_zip, res["dir"], res.get("media") or [])
+        zname = Path(zip_path).name
+        # /out 으로 서빙 가능하게(기본 드래프트 루트가 OUTPUT_DIR이면 그대로, 아니면 복사)
+        if Path(zip_path).resolve().parent != config.OUTPUT_DIR.resolve():
+            import shutil
+            shutil.copy2(zip_path, config.OUTPUT_DIR / zname)
+        res["zip"] = f"/out/{zname}"
     except Exception as e:  # noqa: BLE001
         import traceback; traceback.print_exc()
         return JSONResponse({"error": f"드래프트 생성 실패: {e}"}, status_code=500)
+    res.pop("media", None)
     return JSONResponse(res)
 
 

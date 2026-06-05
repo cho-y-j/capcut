@@ -210,8 +210,8 @@ const run = async () => {
     const r = await fetch('/api/capcut', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()) });
     return { status: r.status, body: await r.json() };
   });
-  ok(cap.status === 200 && cap.body.dir && cap.body.segments >= 1, '캡컷 드래프트 생성(dir+세그먼트)',
-     `${cap.body.segments}seg dir=${(cap.body.dir || '').split('/').pop()}`);
+  ok(cap.status === 200 && cap.body.zip && /\.zip$/.test(cap.body.zip) && cap.body.segments >= 1,
+     '캡컷 드래프트 ZIP(미디어포함) 생성', `${cap.body.segments}seg zip=${(cap.body.zip || '').split('/').pop()}`);
 
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');

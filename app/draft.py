@@ -93,6 +93,7 @@ def build_from_project(input_path: str, clips, srcpaths: dict, *, w: int, h: int
     script = folder.create_draft(draft_name, int(w), int(h), int(round(fps or 30)), allow_replace=True)
     skipped: List[str] = []
     nseg = 0
+    used_media: set = set()
 
     # --- 영상 클립(멀티소스·트림·재정렬) ---
     script.add_track(pc.TrackType.video, "main")
@@ -107,7 +108,7 @@ def build_from_project(input_path: str, clips, srcpaths: dict, *, w: int, h: int
             script.add_material(mat)
             script.add_segment(pc.VideoSegment(mat, pc.trange(t, dur),
                                source_timerange=pc.trange(s, dur)), "main")
-            nseg += 1
+            used_media.add(os.path.abspath(path)); nseg += 1
         except Exception as ex:  # noqa: BLE001 — 이미지/probe 실패 등
             skipped.append(f"clip:{Path(path).name}:{ex}")
         t += dur
@@ -134,7 +135,7 @@ def build_from_project(input_path: str, clips, srcpaths: dict, *, w: int, h: int
                                          transform_x=(float(ov.get("x", 0.5)) - 0.5) * 2,
                                          transform_y=(float(ov.get("y", 0.5)) - 0.5) * 2)
                     script.add_segment(pc.VideoSegment(mat, pc.trange(st, en - st), clip_settings=cs), "overlay")
-                    nseg += 1
+                    used_media.add(os.path.abspath(p)); nseg += 1
                 except Exception as ex:  # noqa: BLE001
                     skipped.append(f"overlay:{ex}")
         except Exception as ex:  # noqa: BLE001
@@ -197,11 +198,51 @@ def build_from_project(input_path: str, clips, srcpaths: dict, *, w: int, h: int
                     mat = pc.AudioMaterial(os.path.abspath(p)); script.add_material(mat)
                     seg = pc.AudioSegment(mat, pc.trange(at, dur), volume=float(au.get("volume", 1.0)))
                     script.add_segment(seg, "audio")
-                    nseg += 1
+                    used_media.add(os.path.abspath(p)); nseg += 1
                 except Exception as ex:  # noqa: BLE001
                     skipped.append(f"audio:{ex}")
         except Exception as ex:  # noqa: BLE001
             skipped.append(f"audio-track:{ex}")
 
     script.save()
-    return {"dir": str(Path(root) / draft_name), "segments": nseg, "skipped": skipped}
+    return {"dir": str(Path(root) / draft_name), "segments": nseg, "skipped": skipped,
+            "media": sorted(used_media)}
+
+
+def bundle_and_zip(draft_dir: str, media_paths) -> str:
+    """드래프트 폴더에 미디어를 복사하고 JSON 경로를 폴더 기준(파일명)으로 바꾼 뒤 ZIP.
+
+    → 사용자가 ZIP만 받아 캡컷 Projects에 풀면 미디어가 함께 있음. 반환: zip 경로.
+    """
+    import shutil
+    import zipfile
+    dd = Path(draft_dir)
+    mat_dir = dd / "materials"
+    mat_dir.mkdir(parents=True, exist_ok=True)
+    remap = {}
+    for src in media_paths or []:
+        sp = Path(src)
+        if not sp.exists():
+            continue
+        dst = mat_dir / sp.name
+        if not dst.exists():
+            try:
+                shutil.copy2(sp, dst)
+            except Exception:  # noqa: BLE001
+                continue
+        remap[os.path.abspath(src)] = f"materials/{sp.name}"   # 폴더 기준 상대경로
+    # JSON 내 절대경로 → 폴더 기준 경로로 치환(content + meta)
+    for jf in ("draft_content.json", "draft_meta_info.json"):
+        p = dd / jf
+        if not p.exists():
+            continue
+        txt = p.read_text(encoding="utf-8")
+        for ab, rel in remap.items():
+            txt = txt.replace(ab, rel)
+        p.write_text(txt, encoding="utf-8")
+    zip_path = str(dd) + ".zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in dd.rglob("*"):
+            if f.is_file():
+                z.write(f, arcname=str(Path(dd.name) / f.relative_to(dd)))
+    return zip_path
