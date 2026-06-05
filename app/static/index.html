@@ -187,8 +187,12 @@
   .vclip .h.l{left:0;border-radius:5px 0 0 5px}.vclip .h.r{right:0;border-radius:0 5px 5px 0}
   .tbadge{position:absolute;top:14px;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid var(--line);color:var(--dim);font-size:10px;text-align:center;line-height:16px;cursor:pointer;z-index:6}
   .tbadge.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
-  .bar2{position:absolute;top:0;height:22px;border-radius:4px;font-size:10px;padding:3px 5px;overflow:hidden;white-space:nowrap;cursor:grab}
-  .bar2 .h{position:absolute;top:0;bottom:0;width:7px;cursor:ew-resize}.bar2 .h.l{left:0}.bar2 .h.r{right:0}
+  .bar2{position:absolute;top:0;height:22px;border-radius:4px;font-size:10px;padding:3px 9px;overflow:hidden;white-space:nowrap;cursor:grab}
+  .bar2 .h{position:absolute;top:0;bottom:0;width:10px;cursor:ew-resize;z-index:4;display:flex;align-items:center;justify-content:center}
+  .bar2 .h:before{content:"";width:2px;height:11px;border-radius:1px;background:currentColor;opacity:.55}
+  .bar2 .h:hover:before{opacity:1;width:3px}
+  .bar2 .h.l{left:0}.bar2 .h.r{right:0}
+  .bar2.sel .h:before{opacity:.9}
   .bar2.sub{background:#d6f3e1;border:1px solid #2e9c5e;color:#0d3b22}
   .bar2.text{background:#ece4ff;border:1px solid #b6a4ec;color:#4b3b8f}
   .bar2.ov{background:#f6e0ef;border:1px solid #d99ec6;color:#7c2f6a}
@@ -1133,7 +1137,7 @@ function drawElLane(sel,cls,arr){const ln=$(sel);ln.innerHTML="";const total=lay
   arr.forEach((o,i)=>{const s=spans[i].s,e=spans[i].e;
     const elSel=A.sel&&A.sel.type===(cls==="text"?"text":"overlay")&&A.sel.i===i;
     const el=document.createElement("div");el.className="bar2 "+cls+(elSel?" sel":"");
-    el.style.left=px(s)+"px";el.style.width=Math.max(14,px(e-s))+"px";
+    el.style.left=px(s)+"px";el.style.width=Math.max(30,px(e-s))+"px";   // 최소폭=양쪽 핸들 잡을 공간
     el.style.top=rowTop(row[i])+"px";el.style.height=TL_ROW+"px";
     el.textContent=(cls==="text"?("T "+(o.text||"")):("🖼 "+(o.name||"")));
     el.innerHTML+=`<div class="h l"></div><div class="h r"></div>`;
@@ -1258,8 +1262,9 @@ window.addEventListener("paste",async e=>{
     $("#msgA").textContent="📋 붙여넣은 텍스트 추가";}
 });
 // 토큰(도형·이모지·로고) → 오버레이 요소로 추가
-function addTokenOverlay(token,url,name,scale){pushHistory();const t=curOut();
-  A.overlays.push({id:++cid,token:token,url:url,name:name,x:0.5,y:0.5,scale:scale||0.25,opacity:1,start:t,end:t+4,fade:0,kf:[]});
+function addTokenOverlay(token,url,name,scale){pushHistory();const tot=layout().total||10;
+  const t=Math.min(curOut(),Math.max(0,tot-1));const end=Math.min(tot,t+4);   // 타임라인 밖으로 안 나가게
+  A.overlays.push({id:++cid,token:token,url:url,name:name,x:0.5,y:0.5,scale:scale||0.25,opacity:1,start:t,end:end,fade:0,kf:[]});
   A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();
   $("#msgA").textContent=name+" 추가 @"+t.toFixed(1)+"s";}
 // 도형
