@@ -509,6 +509,18 @@ async def gen_subtitles(req: Request) -> JSONResponse:
     return JSONResponse({"cues": [{"start": c.start, "end": c.end, "text": c.text} for c in cues]})
 
 
+@app.post("/api/titles")
+async def gen_titles(req: Request) -> JSONResponse:
+    """대본/자막 → 제목·해시태그·설명 추천 (AI 있으면 AI, 없으면 규칙기반)."""
+    import asyncio
+    from . import llm
+    body = await req.json()
+    script = (body.get("script") or "").strip()
+    fmt = body.get("format") or "wide"
+    meta = await asyncio.to_thread(llm.suggest_meta, script, fmt)
+    return JSONResponse(meta)
+
+
 @app.get("/api/waveform")
 async def get_waveform(id: str) -> JSONResponse:
     """타임라인 파형(peaks) — 말/무음을 눈으로."""

@@ -444,6 +444,8 @@
         </div>
         <div id="suggestPanel" class="suggest hide">
           <div class="sgh"><span>💡 AI 제안 <span id="sgCount" class="num"></span></span>
+            <button class="btn ghost xs" id="sgAll" title="제안 전부 적용">✨ 전부</button>
+            <button class="btn ghost xs" id="sgTitle" title="제목·해시태그 추천">📋 제목</button>
             <button class="btn ghost xs" id="sgMore" title="AI에게 더 받기">🤖 더</button>
             <button class="btn ghost xs" id="sgRefresh" title="다시 분석">↻</button></div>
           <div id="suggestList"></div>
@@ -474,6 +476,7 @@
           <div class="addgrid">
             <button class="btn add sm" id="addGrade">🎨 색감</button>
             <button class="btn add sm" id="addCut">✂️ 자르기</button>
+            <button class="btn add sm" id="addMeta">📋 제목·태그</button>
           </div>
           <div class="amcat">빠른 추가 (버튼 · 효과음)</div>
           <div class="chips" id="presetChips"></div>
@@ -531,6 +534,16 @@
     <p class="s">누르면 현재 위치에 추가. 끌어서 위치·크기, 막대로 시간 조절.</p>
     <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:3px;max-height:320px;overflow:auto"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="emojiCancel">닫기</button></div>
+  </div>
+</div>
+
+<!-- 제목·해시태그 추천 모달 -->
+<div class="modal hide" id="metaModal">
+  <div class="modalcard" style="max-width:460px">
+    <h2>📋 제목·해시태그 추천</h2>
+    <p class="s">자막/대본을 바탕으로 만들었어요. 복사해서 업로드에 쓰세요.</p>
+    <div id="metaBody"><div class="s" style="padding:12px 0">분석 중…</div></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="metaCancel">닫기</button></div>
   </div>
 </div>
 
@@ -683,13 +696,14 @@ wireDrop($("#dropC"),$("#fileC"),files=>{acFiles=Array.from(files);renderAcThumb
   const none=acFiles.length===0;$("#acGen").disabled=none;$("#acRaw").disabled=none;
   $("#acMsg").textContent=none?"소재를 올리면 시작할 수 있어요":"준비됐어요 — ✨ 맡기거나 ✏️ 바로 편집";});
 // AI 없이 바로 편집기로 — 올린 소재를 그대로 클립으로 열기
+let RAW_ENTRY=false;
 async function rawOpen(files,goal,btn){if(!files||!files.length)return;
   const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent="편집기 여는 중…";}
   try{const fd=new FormData();fd.append("goal",goal||"wide");
     files.forEach(f=>fd.append("files",f));
     const j=await(await fetch("/api/raw_open",{method:"POST",body:fd})).json();
     if(j.error){alert("열기 실패: "+j.error);if(btn){btn.disabled=false;btn.textContent=old;}return;}
-    initEditor(j.id,j.res,j.extras||{});
+    RAW_ENTRY=true;initEditor(j.id,j.res,j.extras||{});
   }catch(e){alert("열기 실패: "+e);if(btn){btn.disabled=false;btn.textContent=old;}}}
 $("#acRaw").onclick=()=>rawOpen(acFiles,acGoal,$("#acRaw"));
 function renderAcThumbs(){const box=$("#acFiles");box.innerHTML="";
@@ -850,6 +864,8 @@ function initEditor(id,res,restore){
   if(!restore&&INTAKE.memo)applyMemo(INTAKE.memo);
   try{if(!localStorage.getItem("oncut_seen"))$("#help").classList.remove("hide");}catch(e){}
   try{renderSuggestions();}catch(e){}   // 💡 AI 제안 카드 자동 분석
+  try{if(!RAW_ENTRY)autoPolish();}catch(e){}  // ✨ 진입 시 자동 마감(직접편집 진입 제외)
+  RAW_ENTRY=false;
 }
 function setStageAspect(){fitStage();}
 function fitStage(){const wrap=document.querySelector(".stagewrap"),st=$(".stage");if(!wrap||!st||!A)return;
@@ -1616,10 +1632,10 @@ function buildSuggestions(){if(!A)return [];const tot=layout().total||0;const ou
         pushHistory();A.cues=(j.cues||[]).map(c=>({...c}));A.subsOn=true;$("#msgA").textContent="자막 "+A.cues.length+"개 생성 ✓";}});
   const g=A.grade||{};const flat=(g.brightness??1)===1&&(g.contrast??1)===1&&(g.saturation??1)===1&&(g.warmth??0)===0;
   if(flat && mainVideo)
-    out.push({id:"grade",icon:"🎨",title:"색감이 밋밋해요",desc:"'선명' 보정으로 화사하게 바꿀까요?",
+    out.push({id:"grade",safe:true,icon:"🎨",title:"색감이 밋밋해요",desc:"'선명' 보정으로 화사하게 바꿀까요?",
       apply:()=>{pushHistory();A.grade={brightness:1.03,contrast:1.12,saturation:1.35,warmth:0.1};}});
   if((A.cues||[]).length>0 && (A.style.outlineW||0)<2)
-    out.push({id:"subread",icon:"👀",title:"자막이 잘 안 보일 수 있어요",desc:"외곽선을 넣어 또렷하게 만들까요?",
+    out.push({id:"subread",safe:true,icon:"👀",title:"자막이 잘 안 보일 수 있어요",desc:"외곽선을 넣어 또렷하게 만들까요?",
       apply:()=>{pushHistory();A.style.outlineW=3;A.style.outlineColor="#000000";}});
   if(tot>2 && !sgActiveNear(A.texts,0,1.2) && !sgActiveNear(A.overlays,0,1.2))
     out.push({id:"intro",icon:"🎬",title:"인트로 제목 카드",desc:"시작 2.5초에 배경+제목을 넣어 시선을 잡아요.",
@@ -1652,6 +1668,39 @@ function renderSuggestions(extra){const panel=$("#suggestPanel"),list=$("#sugges
       renderStage();redraw();renderInspector();save();renderSuggestions();};
     c.querySelector(".ig").onclick=()=>{(A._sgDismiss||(A._sgDismiss={}))[s.id]=1;renderSuggestions();};
     list.appendChild(c);});}
+// 진입 시 자동 마감 — 안전한 보정(색감·자막 가독성)을 묻지 않고 적용(되돌리기 가능)
+async function autoPolish(){if(!A||A._autoPolished)return;A._autoPolished=true;
+  const safe=buildSuggestions().filter(s=>s.safe);if(!safe.length)return;
+  const done=[];for(const s of safe){try{await s.apply();done.push(s.title.replace(/이.*$|가.*$/,"").trim()||s.title);}catch(e){}}
+  if(done.length){renderStage();redraw();renderInspector();save();renderSuggestions();
+    $("#msgA").textContent="✨ AI가 자동 보정했어요: "+done.join(", ")+" · 마음에 안 들면 되돌리기(Ctrl+Z)";}}
+// 제안 전부 적용(느린 자막 포함)
+async function applyAllSuggestions(){const cards=buildSuggestions();if(!cards.length){$("#msgA").textContent="적용할 제안이 없어요";return;}
+  $("#msgA").textContent="✨ AI 제안 전부 적용 중…";let n=0;
+  for(const s of cards){try{await s.apply();n++;}catch(e){}}
+  renderStage();redraw();renderInspector();save();renderSuggestions();
+  $("#msgA").textContent="✨ 제안 "+n+"개 적용 완료 (되돌리기 Ctrl+Z)";}
+const _sgA=$("#sgAll");if(_sgA)_sgA.onclick=applyAllSuggestions;
+// 📋 제목·해시태그 추천
+function projectScript(){const parts=[];(A.cues||[]).forEach(c=>{if(c.text)parts.push(c.text);});
+  (A.texts||[]).forEach(t=>{if(t.text&&t.text!=="제목을 입력하세요"&&t.text!=="텍스트")parts.push(t.text);});
+  return parts.join(" ").trim();}
+async function showMeta(){$("#metaModal").classList.remove("hide");$("#metaBody").innerHTML='<div class="s" style="padding:12px 0">분석 중…</div>';
+  const script=projectScript();
+  try{const j=await(await fetch("/api/titles",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({script:script,format:A.format||"wide"})})).json();
+    const tags=(j.hashtags||[]).join(" ");
+    const fld=(lbl,val)=>`<div style="margin-bottom:12px"><div class="s" style="margin-bottom:4px">${lbl}</div>
+      <div style="display:flex;gap:6px"><div style="flex:1;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;word-break:break-all">${(val||"").replace(/</g,"&lt;")}</div>
+      <button class="btn ghost sm cpy" data-v="${(val||"").replace(/"/g,"&quot;")}">복사</button></div></div>`;
+    $("#metaBody").innerHTML=fld("제목",j.title)+fld("해시태그",tags)+fld("설명",j.description)+
+      `<div class="s">엔진: ${j.provider||"rule"}${(!script)?" · (자막/글자가 없어 기본값 — 자막 만들고 다시 받으면 더 정확)":""}</div>`;
+    $("#metaBody").querySelectorAll(".cpy").forEach(b=>b.onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(b.dataset.v);b.textContent="복사됨 ✓";setTimeout(()=>b.textContent="복사",1200);});
+  }catch(e){$("#metaBody").innerHTML='<div class="s">추천 실패: '+e+'</div>';}}
+const _sgT=$("#sgTitle");if(_sgT)_sgT.onclick=showMeta;
+const _amT=$("#addMeta");if(_amT)_amT.onclick=showMeta;
+const _mC=$("#metaCancel");if(_mC)_mC.onclick=()=>$("#metaModal").classList.add("hide");
+$("#metaModal")&&($("#metaModal").onclick=e=>{if(e.target.id==="metaModal")$("#metaModal").classList.add("hide");});
 const _sgR=$("#sgRefresh");if(_sgR)_sgR.onclick=()=>{A._sgDismiss={};renderSuggestions();};
 const _sgM=$("#sgMore");if(_sgM)_sgM.onclick=async()=>{$("#msgA").textContent="AI가 제안 생각 중…";
   try{const r=await fetch("/api/assist",{method:"POST",headers:{"Content-Type":"application/json"},

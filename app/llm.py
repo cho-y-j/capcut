@@ -123,6 +123,59 @@ def assist(message: str, ctx: dict | None = None) -> dict:
     raise RuntimeError("LLM 사용 불가 — " + ("; ".join(errs) if errs else "키 없음(어드민에서 DeepSeek 키 입력)"))
 
 
+_STOP = {"그리고", "그래서", "하지만", "그런데", "이거", "저거", "그거", "정말", "진짜",
+         "너무", "조금", "이번", "오늘", "우리", "여기", "거기", "근데", "약간", "그냥",
+         "있어요", "합니다", "해요", "이런", "저런", "그런", "같은", "위해", "통해"}
+
+
+def _rule_meta(script: str, fmt: str) -> dict:
+    """규칙기반 제목·해시태그·설명 (키 없이도 항상 동작)."""
+    import re
+    text = (script or "").strip()
+    sents = [s.strip() for s in re.split(r"[.!?\n·]", text) if s.strip()]
+    title = ""
+    for s in sents:
+        if 6 <= len(s) <= 26:
+            title = s; break
+    title = title or (sents[0][:24] if sents else "오늘의 영상")
+    words = re.findall(r"[가-힣A-Za-z][가-힣A-Za-z0-9]{1,}", text)
+    freq: dict = {}
+    for w in words:
+        if len(w) >= 2 and w not in _STOP:
+            freq[w] = freq.get(w, 0) + 1
+    tags = [w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:5]]
+    base = {"shorts": ["쇼츠", "shorts"], "square": ["릴스"], "wide": ["유튜브"]}.get(fmt, [])
+    hashtags = ["#" + t for t in (tags + base)][:6] or ["#영상"]
+    desc = " ".join(sents[:2])[:120] or "영상 설명을 입력하세요."
+    return {"title": title, "hashtags": hashtags, "description": desc, "provider": "rule"}
+
+
+def suggest_meta(script: str, fmt: str = "wide") -> dict:
+    """대본/자막 → {title, hashtags[], description}. CLI→DeepSeek→규칙."""
+    script = (script or "").strip()
+    if len(script) < 4:
+        return _rule_meta(script, fmt)
+    prompt = ("아래 영상 대본으로 유튜브 메타데이터를 만들어라. JSON만 출력:\n"
+              '{"title":"클릭하고싶은 제목(≤26자)","hashtags":["#태그",...5개],"description":"2문장 설명"}\n'
+              f"형식: {fmt}\n대본:\n{script[:1500]}")
+    if _claude_available():
+        try:
+            o = _extract_json(_claude_cli(prompt))
+            if o.get("title"):
+                return {**_rule_meta(script, fmt), **o, "provider": "claude-cli"}
+        except Exception:  # noqa: BLE001
+            pass
+    k = keys().get("deepseek")
+    if k:
+        try:
+            o = _extract_json(_deepseek(prompt, k))
+            if o.get("title"):
+                return {**_rule_meta(script, fmt), **o, "provider": "deepseek"}
+        except Exception:  # noqa: BLE001
+            pass
+    return _rule_meta(script, fmt)
+
+
 def _parse(raw: str) -> dict:
     obj = _extract_json(raw)
     acts = obj.get("actions") if isinstance(obj, dict) else None

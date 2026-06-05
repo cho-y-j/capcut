@@ -139,6 +139,16 @@ const run = async () => {
   const after = await p.$$eval('#suggestList .sgcard .t', e => e.length);
   ok(after === before - 1, '무시→카드 1개 감소', `${before}->${after}`);
 
+  // --- 7b. 진입 자동마감 + 전부적용 + 제목/해시태그 ---
+  console.log('[7b] 자동마감·전부적용·제목');
+  await p.evaluate(SET_A); await p.evaluate(() => { A.cues = [{ start: 0, end: 2, text: '안녕하세요 제주 여행입니다' }]; A.style.outlineW = 0; redraw(); });
+  const ap = await p.evaluate(async () => { const g0 = JSON.stringify(A.grade), o0 = A.style.outlineW; await autoPolish(); return { g0, g1: JSON.stringify(A.grade), o0, o1: A.style.outlineW, flag: A._autoPolished }; });
+  ok(ap.g0 !== ap.g1 && ap.o1 >= 2 && ap.flag, '자동마감: 색감+자막 외곽선 자동 적용', `grade${ap.g0!==ap.g1?'✓':'✗'} outline ${ap.o0}->${ap.o1}`);
+  const all = await p.evaluate(async () => { const n0 = A.overlays.length + A.texts.length; await applyAllSuggestions(); return { added: (A.overlays.length + A.texts.length) - n0, fmt: A.format }; });
+  ok(all.added > 0, '전부 적용: 제안들이 실제 반영(요소 추가)', `+${all.added}`);
+  const meta = await p.evaluate(async () => { const r = await fetch('/api/titles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: '제주도 여행 브이로그. 성산일출봉 바다가 예뻤어요. 카페 추천.', format: 'shorts' }) }); return r.json(); });
+  ok(!!meta.title && Array.isArray(meta.hashtags) && meta.hashtags.length > 0, '제목·해시태그 추천 반환', `${meta.title} ${(meta.hashtags||[]).join('')}`);
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));
