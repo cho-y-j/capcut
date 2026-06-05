@@ -761,9 +761,12 @@ loadTemplates();
 $("#acVoicePrev").onclick=async()=>{const v=$("#acVoice").value;$("#acVoicePrev").textContent="…";
   try{const a=new Audio("/api/voice_preview?voice="+encodeURIComponent(v)+"&t="+Date.now());a.onended=a.onerror=()=>$("#acVoicePrev").textContent="▶ 미리듣기";await a.play();}
   catch(e){$("#acVoicePrev").textContent="▶ 미리듣기";}};
-wireDrop($("#dropC"),$("#fileC"),files=>{acFiles=Array.from(files);renderAcThumbs();
-  const none=acFiles.length===0;$("#acGen").disabled=none;$("#acRaw").disabled=none;
-  $("#acMsg").textContent=none?"소재를 올리면 시작할 수 있어요":"준비됐어요 — ✨ 맡기거나 ✏️ 바로 편집";});
+wireDrop($("#dropC"),$("#fileC"),files=>{                 // 여러 번 끌어 넣으면 누적(중복 제외)
+  const k=f=>f.name+":"+f.size,seen=new Set(acFiles.map(k));
+  Array.from(files).forEach(f=>{if((f.type.startsWith("image")||f.type.startsWith("video"))&&!seen.has(k(f))){acFiles.push(f);seen.add(k(f));}});
+  try{$("#fileC").value="";}catch(e){}
+  renderAcThumbs();const none=acFiles.length===0;$("#acGen").disabled=none;$("#acRaw").disabled=none;
+  $("#acMsg").textContent=none?"소재를 올리면 시작할 수 있어요":("소재 "+acFiles.length+"개 — ✨ 맡기거나 ✏️ 바로 편집 · 더 끌어 넣어도 돼요");});
 // AI 없이 바로 편집기로 — 올린 소재를 그대로 클립으로 열기
 let RAW_ENTRY=false;
 async function rawOpen(files,goal,btn){if(!files||!files.length)return;

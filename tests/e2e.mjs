@@ -249,6 +249,16 @@ const run = async () => {
   const noLayout = await p.evaluate(() => A.layout === null);
   ok(hadLayout && noLayout, '배경 띠 제거 버튼 동작');
 
+  // --- 7k. 소재 연속 드래그 누적 ---
+  console.log('[7k] 소재 누적');
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.setInputFiles('#fileC', '/tmp/oncut_golden/rect.png'); await p.waitForTimeout(120);
+  await p.setInputFiles('#fileC', '/tmp/oncut_golden/lr.png'); await p.waitForTimeout(120);
+  const acc2 = await p.evaluate(() => acFiles.length);
+  await p.setInputFiles('#fileC', '/tmp/oncut_golden/rect.png'); await p.waitForTimeout(120);
+  const acc3 = await p.evaluate(() => acFiles.length);
+  ok(acc2 === 2 && acc3 === 2, '연속 추가 누적(+중복 제외)', `${acc2}→${acc3}`);
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));
