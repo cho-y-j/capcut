@@ -4,4 +4,5 @@ uvicorn[standard]
 python-multipart
 edge-tts
 pillow
+opencv-python-headless
 pycapcut

@@ -100,6 +100,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                    src_h: float | None = None,
                    scale_h: int | None = None, preset: str | None = None, crf: str | None = None,
                    model: str | None = None, normalize: bool = True,
+                   focus: tuple | None = None,
                    progress: Optional[Callable[[float], None]] = None) -> str:
     """클립 타임라인 → MP4 (+ 자막 + 텍스트박스 + 배경음악 + 오버레이 + 효과음).
 
@@ -163,7 +164,7 @@ def export_project(input_path: str, clips, out_path: str, *, subtitles: bool = T
                                       bgm=bgm, bgm_volume=vol, bgm_fade_in=fin,
                                       bgm_fade_out=fout, canvas=canvas, sources=sources,
                                       grade=grade, layout=layout, scale_h=scale_h, preset=preset, crf=crf,
-                                      progress=prog)
+                                      focus=focus, progress=prog)
 
     if not need_burn:
         _render(base, _scale(0.0, span))

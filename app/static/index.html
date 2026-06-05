@@ -912,7 +912,7 @@ function initEditor(id,res,restore){
   A={id,res,duration:res.duration,w:res.w||1280,h:res.h||720,clips:baseClips,
      cues:res.cues.map(c=>({...c})),style:{...DEF_STYLE},
      bgm:{enabled:false,volume:0.16,fadeIn:0,fadeOut:0},
-     overlays:[],texts:[],sfx:[],audios:[],pips:[],grade:{brightness:1,contrast:1,saturation:1,warmth:0},layout:null,sel:null,srcMeta:{},curSrc:"0",
+     overlays:[],texts:[],sfx:[],audios:[],pips:[],grade:{brightness:1,contrast:1,saturation:1,warmth:0},layout:null,focus:null,sel:null,srcMeta:{},curSrc:"0",
      pxPerSec:Math.max(8,Math.min(80,820/(res.duration||10))),playIdx:0,playing:false};
   if(restore){
     if(restore.srcMeta)A.srcMeta=restore.srcMeta;
@@ -926,6 +926,7 @@ function initEditor(id,res,restore){
     if(restore.pips)A.pips=restore.pips.map(o=>({id:++cid,...o}));
     if(restore.grade)A.grade={...A.grade,...restore.grade};
     if(restore.layout)A.layout=restore.layout;
+    if(restore.focus)A.focus=restore.focus;
     if(restore.cu)A.cues.forEach((c,i)=>{if(restore.cu[i]!=null)c.text=restore.cu[i];});
   }
   A.format=(restore&&restore.format)||INTAKE.format||"wide";
@@ -2059,7 +2060,7 @@ function seekOut2cue(c){const {starts}=layout();for(let i=0;i<A.clips.length;i++
 // ===== 히스토리/저장 =====
 function snap(){return JSON.stringify({clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
   cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
-  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade}});}
+  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade},focus:A.focus});}
 function pushHistory(){undoStack.push(snap());if(undoStack.length>80)undoStack.shift();redoStack=[];}
 function applySnap(s){const o=JSON.parse(s);A.clips=o.clips.map(c=>({id:++cid,...c}));
   A.cues.forEach((c,i)=>{if(o.cu[i]!=null)c.text=o.cu[i];});A.style={...DEF_STYLE,...o.style};A.bgm={...A.bgm,...o.bgm};
@@ -2074,7 +2075,7 @@ let _draftT=null;
 function save(){if(!A)return;const st={id:A.id,format:A.format,subsOn:A.subsOn,srcMeta:A.srcMeta,
   clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.srcIn,srcEnd:c.srcEnd,transition:{...c.transition}})),
   cu:A.cues.map(c=>c.text),style:{...A.style},bgm:{...A.bgm},
-  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade},layout:A.layout};
+  overlays:A.overlays.map(o=>({...o})),texts:A.texts.map(o=>({...o})),sfx:A.sfx.map(o=>({...o})),audios:A.audios.map(o=>({...o})),pips:A.pips.map(o=>({...o})),grade:{...A.grade},layout:A.layout,focus:A.focus};
   try{localStorage.setItem("capcut",JSON.stringify(st));}catch(e){}
   clearTimeout(_draftT);_draftT=setTimeout(()=>serverSaveDraft(st),2500);}   // 서버 자동저장(디바운스)
 async function serverSaveDraft(st){try{await fetch("/api/draft/save",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -2110,7 +2111,7 @@ function payload(){return{id:A.id,clips:A.clips.map(c=>({src:c.src||"0",srcIn:c.
   sfx:A.sfx.map(s=>({token:s.token,preset:s.preset,at:s.at,volume:s.volume})),
   audios:A.audios.map(a=>({token:a.token,at:a.at,in:a.in,dur:a.dur,volume:a.volume,fadeIn:a.fadeIn,fadeOut:a.fadeOut})),
   pips:A.pips.map(p=>({src:p.src,x:p.x,y:p.y,scale:p.scale,opacity:p.opacity,start:p.start,end:p.end,in:p.in,volume:p.volume,kf:p.kf||[],chromaKey:p.chromaKey||null,chromaSim:p.chromaSim||0.3,mask:p.mask||null})),
-  grade:A.grade,layout:A.layout,srcH:A.h,
+  grade:A.grade,layout:A.layout,focus:A.focus,srcH:A.h,
   texts:A.texts.map(t=>({text:t.text,x:t.x,y:t.y,fontSize:t.fontSize,color:t.color,outlineColor:t.outlineColor,outlineW:t.outlineW,bold:t.bold,font:t.font,start:t.start,end:t.end,anim:t.anim,opacity:t.opacity!=null?t.opacity:1,rot:t.rot||0,bg:t.bg||null,bgr:t.bgr,bgOpacity:t.bgOpacity,kf:t.kf||[]}))};}
 async function startJob(url,statusUrl,label){$("#prog").style.width="0";$("#msgA").textContent=label+" 시작…";
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});

@@ -135,6 +135,31 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         ok(False, "이모지 PNG", str(e)[:60])
 
+    print("[9] 세로 리프레이밍 초점 크롭 + 얼굴 기본값")
+    lrp = str(TMP / "lr.png"); lrv = str(TMP / "lr.mp4")
+    subprocess.run([config.FFMPEG, "-y", "-f", "lavfi", "-i", "color=c=red:s=320x360",
+                    "-f", "lavfi", "-i", "color=c=green:s=320x360", "-filter_complex", "[0][1]hstack",
+                    "-frames:v", "1", lrp], capture_output=True)
+    subprocess.run([config.FFMPEG, "-y", "-loop", "1", "-i", lrp, "-f", "lavfi",
+                    "-i", "sine=frequency=300:duration=2", "-t", "2", "-shortest",
+                    "-pix_fmt", "yuv420p", lrv], capture_output=True)
+
+    def avg(out):
+        r = subprocess.run([config.FFMPEG, "-i", out, "-ss", "1", "-frames:v", "1",
+                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
+        a = np.frombuffer(r.stdout, np.uint8); k = len(a) // 3 * 3
+        return a[:k].reshape(-1, 3).mean(0)
+    render.render_timeline(lrv, [{"srcIn": 0, "srcEnd": 2, "transition": {}}], str(TMP / "fl.mp4"),
+                           canvas=(216, 384), focus=(0.1, 0.5), preset="ultrafast", crf="30")
+    render.render_timeline(lrv, [{"srcIn": 0, "srcEnd": 2, "transition": {}}], str(TMP / "fr.mp4"),
+                           canvas=(216, 384), focus=(0.9, 0.5), preset="ultrafast", crf="30")
+    cl, cr = avg(str(TMP / "fl.mp4")), avg(str(TMP / "fr.mp4"))
+    ok(cl[0] > cl[1] and cr[1] > cr[0], "초점 좌→빨강 / 우→초록 (인물추적 크롭)",
+       f"L{cl.round(0).tolist()} R{cr.round(0).tolist()}")
+    from app import face  # noqa: E402
+    fxy = face.detect_focus(lrv)
+    ok(fxy == (0.5, 0.5), "얼굴 없으면 중앙 기본값", str(fxy))
+
     print("\n" + ("✗ 실패 %d개: %s" % (len(FAILS), ", ".join(FAILS)) if FAILS
                   else "전체 통과 ✓ — 렌더 골든(회전·비정사각·배경·텍스트스핀·에셋)"))
     return 1 if FAILS else 0

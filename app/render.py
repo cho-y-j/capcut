@@ -162,7 +162,8 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
                     canvas: tuple | None = None, sources: dict | None = None,
                     grade: dict | None = None, layout: dict | None = None,
                     scale_h: int | None = None, preset: str | None = None,
-                    crf: str | None = None, progress: ProgressCB = None) -> str:
+                    crf: str | None = None, focus: tuple | None = None,
+                    progress: ProgressCB = None) -> str:
     """클립(여러 소스: 영상/이미지)을 순서대로(+트랜지션) 이어붙여 MP4 생성.
 
     sources={token:{path,kind(video|image)}}, "0"=메인. 멀티소스·이미지·캔버스·
@@ -211,8 +212,15 @@ def render_timeline(input_path: str, clips: Sequence[Clip], output_path: str,
         vsc = (f",scale={tw}:{boxH}:force_original_aspect_ratio=increase,"
                f"crop={tw}:{boxH},pad={tw}:{th}:0:{padY}:{bg},setsar=1,fps={F:.5f}")
     else:
-        vsc = (f",scale={tw}:{th}:force_original_aspect_ratio=increase,"
-               f"crop={tw}:{th},setsar=1,fps={F:.5f}") if need_vnorm else ""
+        # cover-crop. focus=(fx,fy) 0~1로 크롭 위치 이동(말하는 사람 추적 리프레이밍).
+        if focus and need_vnorm:
+            fx = max(0.0, min(1.0, float(focus[0]))); fy = max(0.0, min(1.0, float(focus[1])))
+            cx = f"(in_w-{tw})*{fx:.4f}"; cy = f"(in_h-{th})*{fy:.4f}"
+            vsc = (f",scale={tw}:{th}:force_original_aspect_ratio=increase,"
+                   f"crop={tw}:{th}:'{cx}':'{cy}',setsar=1,fps={F:.5f}")
+        else:
+            vsc = (f",scale={tw}:{th}:force_original_aspect_ratio=increase,"
+                   f"crop={tw}:{th},setsar=1,fps={F:.5f}") if need_vnorm else ""
 
     inputs: List[str] = ["-i", input_path]
     path2idx = {input_path: 0}

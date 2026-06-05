@@ -324,12 +324,14 @@ async def shortify_ep(target: str = Form("30"), goal: str = Form("shorts"),
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": f"분석 실패: {e}"}, status_code=500)
     cues = shortify.window_cues(segs, start, end)
+    from . import face
+    fx, fy = await asyncio.to_thread(face.detect_focus, str(dest), start, end)   # 인물 추적 크롭
     JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "숏폼 자동추출"}
     res = {"mode": "a", "duration": round(end - start, 2), "w": mw, "h": mh, "fps": mfps,
            "clips": [{"srcIn": start, "srcEnd": end, "src": "0",
                       "transition": {"type": "none", "dur": 0.5}}], "cuts": [], "cues": cues}
     extras = {"format": goal if goal in _AC_DIMS else "shorts",
-              "clips": res["clips"], "srcMeta": {}}
+              "clips": res["clips"], "srcMeta": {}, "focus": [fx, fy]}
     JOBS[jid]["result"] = res
     save_jobs()
     return JSONResponse({"id": jid, "res": res, "extras": extras,
@@ -387,14 +389,18 @@ async def highlight_open(req: Request) -> JSONResponse:
     st = HL.get(body.get("id"))
     if not st:
         return JSONResponse({"error": "분석이 만료됐어요. 다시 시도해 주세요."}, status_code=404)
+    import asyncio
+    from . import face
     start = float(body.get("start", 0)); end = float(body.get("end", 0))
     goal = body.get("goal") or "shorts"
     cues = shortify.window_cues(st.get("segs"), start, end)
+    fx, fy = await asyncio.to_thread(face.detect_focus, st["path"], start, end)
     jid = body.get("id")
     res = {"mode": "a", "duration": round(end - start, 2), "w": st["w"], "h": st["h"], "fps": st["fps"],
            "clips": [{"srcIn": start, "srcEnd": end, "src": "0",
                       "transition": {"type": "none", "dur": 0.5}}], "cuts": [], "cues": cues}
-    extras = {"format": goal if goal in _AC_DIMS else "shorts", "clips": res["clips"], "srcMeta": {}}
+    extras = {"format": goal if goal in _AC_DIMS else "shorts", "clips": res["clips"],
+              "srcMeta": {}, "focus": [fx, fy]}
     JOBS[jid]["result"] = res
     save_jobs()
     return JSONResponse({"id": jid, "res": res, "extras": extras})
@@ -1041,6 +1047,7 @@ async def export(req: Request) -> JSONResponse:
                                     sfx=sfx, audios=audios, pips=pips, texts=texts, canvas=canvas,
                                     sources=job.get("sources"), grade=body.get("grade"),
                                     layout=body.get("layout"),
+                                    focus=body.get("focus"),
                                     src_h=body.get("srcH"), progress=_cb)
             EXPORT[jid].update(pct=1.0, done=True, url=f"/out/{Path(out).name}")
         except Exception as e:  # noqa: BLE001
