@@ -297,6 +297,41 @@ async def autocut_status(id: str) -> JSONResponse:
     return JSONResponse(st)
 
 
+@app.post("/api/raw_open")
+async def raw_open(goal: str = Form("wide"),
+                   files: List[UploadFile] = File(...)) -> JSONResponse:
+    """AI 없이 '바로 편집기로' — 올린 소재를 그대로 클립으로 만들어 편집기에 넘김.
+    영상은 원본 길이 유지, 사진은 3초. 자동 컷·자막·TTS·템플릿 장식 전부 없음."""
+    import asyncio
+    jid = uuid.uuid4().hex[:12]
+    fmt = goal if goal in _AC_DIMS else "wide"
+    media = []
+    for i, f in enumerate(files):
+        ext = Path(f.filename or "").suffix.lower()
+        is_img = ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic"}
+        dest = config.UPLOAD_DIR / f"{jid}_raw{i:03d}_{f.filename}"
+        with open(dest, "wb") as out:
+            while chunk := await f.read(1 << 20):
+                out.write(chunk)
+        media.append({"path": str(dest), "kind": "image" if is_img else "video",
+                      "name": f.filename})
+    if not media:
+        return JSONResponse({"error": "소재가 없습니다"}, status_code=400)
+    # 영상=원본 전체 길이(큰 dur로 min이 자연길이 선택), 사진=3초. 텍스트/훅/장식 없음.
+    plan = {"scenes": [{"text": "", "dur": 99999.0 if m["kind"] == "video" else 3.0}
+                       for m in media], "hook": "", "grade": {}, "music": False}
+    try:
+        res, extras = await asyncio.to_thread(_build_autocut, jid, fmt, media, plan,
+                                              False, None, lambda p: None, {"transition": "none"}, "+0%")
+        if jid in JOBS:
+            JOBS[jid]["result"] = res
+        save_jobs()
+        return JSONResponse({"id": jid, "res": res, "extras": extras})
+    except Exception as e:  # noqa: BLE001
+        import traceback; traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 def _build_autocut(jid, fmt, media, plan, music, voice, cb, tp=None, rate="+0%"):
     """동기 빌드 — 확정된 구성안 + 템플릿(tp) → 이미지=모드B / 영상·혼합 → (res, extras)."""
     from . import render

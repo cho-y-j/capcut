@@ -30,8 +30,8 @@
   /* 랜딩 히어로 */
   .hero{text-align:center;padding:18px 0 8px}
   .hero h2{font-size:26px;font-weight:700;margin:0 0 6px;letter-spacing:-.02em}
-  .hero.block{background:var(--lilac);border-radius:24px;padding:34px 22px 30px;margin-bottom:18px}
-  .hero.block h2{font-size:34px;line-height:1.12;color:#1f1d3d}
+  .hero.block{background:var(--lilac);border-radius:20px;padding:18px 20px 16px;margin-bottom:14px}
+  .hero.block h2{font-size:23px;line-height:1.14;color:#1f1d3d}
   .hero.block h2 .g{color:var(--accent)}
   .hero.block p{color:#3a3358;font-size:13px}
   @media(max-width:560px){.hero.block h2{font-size:26px}}
@@ -318,6 +318,7 @@
           <div class="hint" id="bkMsg" style="margin-top:5px">선택한 틀(특히 강렬한 홍보·깔끔한 정보)에서 끝에 로고+이름+문구가 자동으로 붙어요.</div>
         </details>
         <div class="row" style="margin-top:6px"><button class="btn xl" id="acGen" disabled>✨ AI에게 맡겨 1차 완성</button></div>
+        <div class="row" style="margin-top:8px;justify-content:center"><button class="btn ghost" id="acRaw" disabled>✏️ AI 없이 바로 편집기로 (직접 편집)</button></div>
         <div class="hint" id="acMsg" style="margin-top:8px;text-align:center">소재를 올리면 시작할 수 있어요 · 완성 후 편집기에서 자유롭게 수정</div>
       </div>
     </section>
@@ -344,6 +345,7 @@
         <div class="hint" style="margin-bottom:12px">원하는 걸 한 줄로 적어주세요. 비워두면 AI 추천대로 만들어 드려요.</div>
         <textarea id="memo" placeholder="예: 쇼츠로 만들어줘 · 자막 크게 · 시작에 구독 버튼 · 클릭음 넣어줘 …" style="min-height:58px"></textarea>
         <div class="row" style="margin-top:14px"><button class="btn xl" id="genIntake">✨ AI에게 맡기고 편집 시작</button></div>
+        <div class="row" style="margin-top:8px;justify-content:center"><button class="btn ghost" id="rawIntake">✏️ AI 없이 바로 편집기로 (직접 편집)</button></div>
         <div class="hint" style="margin-top:8px;text-align:center">무음·잔말·반복 자동 컷 + 자막 자동 (기본 ON) · 생성 후 편집기에서 자유롭게 수정</div>
         <details class="adv">
           <summary>세부 설정 — 형식·자동작업 직접 고르기</summary>
@@ -637,7 +639,18 @@ $("#acVoicePrev").onclick=async()=>{const v=$("#acVoice").value;$("#acVoicePrev"
   try{const a=new Audio("/api/voice_preview?voice="+encodeURIComponent(v)+"&t="+Date.now());a.onended=a.onerror=()=>$("#acVoicePrev").textContent="▶ 미리듣기";await a.play();}
   catch(e){$("#acVoicePrev").textContent="▶ 미리듣기";}};
 wireDrop($("#dropC"),$("#fileC"),files=>{acFiles=Array.from(files);renderAcThumbs();
-  $("#acGen").disabled=acFiles.length===0;$("#acMsg").textContent=acFiles.length?"준비됐어요 — ✨ 눌러 시작":"소재를 올리면 시작할 수 있어요";});
+  const none=acFiles.length===0;$("#acGen").disabled=none;$("#acRaw").disabled=none;
+  $("#acMsg").textContent=none?"소재를 올리면 시작할 수 있어요":"준비됐어요 — ✨ 맡기거나 ✏️ 바로 편집";});
+// AI 없이 바로 편집기로 — 올린 소재를 그대로 클립으로 열기
+async function rawOpen(files,goal,btn){if(!files||!files.length)return;
+  const old=btn&&btn.textContent;if(btn){btn.disabled=true;btn.textContent="편집기 여는 중…";}
+  try{const fd=new FormData();fd.append("goal",goal||"wide");
+    files.forEach(f=>fd.append("files",f));
+    const j=await(await fetch("/api/raw_open",{method:"POST",body:fd})).json();
+    if(j.error){alert("열기 실패: "+j.error);if(btn){btn.disabled=false;btn.textContent=old;}return;}
+    initEditor(j.id,j.res,j.extras||{});
+  }catch(e){alert("열기 실패: "+e);if(btn){btn.disabled=false;btn.textContent=old;}}}
+$("#acRaw").onclick=()=>rawOpen(acFiles,acGoal,$("#acRaw"));
 function renderAcThumbs(){const box=$("#acFiles");box.innerHTML="";
   const pr=$("#dropCprompt");if(pr)pr.style.display=acFiles.length?"none":"block";
   if(!acFiles.length)return;
@@ -722,7 +735,9 @@ function processSSE(id,onResult){const es=new EventSource(`/api/process?id=${id}
 // ===== 업로드 =====
 const INTAKE={format:"wide",style:"basic",memo:"",subs:true};
 let JOBID=null;
-wireDrop($("#dropA"),$("#fileA"),files=>{if(files[0])uploadA(files[0]);});
+let lastModeAFile=null;
+wireDrop($("#dropA"),$("#fileA"),files=>{if(files[0]){lastModeAFile=files[0];uploadA(files[0]);}});
+$("#rawIntake").onclick=()=>{if(lastModeAFile)rawOpen([lastModeAFile],INTAKE.format||"wide",$("#rawIntake"));};
 async function uploadA(file){$("#dropA").innerHTML=`업로드 중 · <b>${file.name}</b>`;
   const fd=new FormData();fd.append("file",file);
   const r=await fetch("/api/upload",{method:"POST",body:fd});const j=await r.json();
