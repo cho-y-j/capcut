@@ -434,6 +434,7 @@
           <div class="addgrid">
             <button class="btn add sm" id="addClipVid">🎬 영상</button>
             <button class="btn add sm" id="addClipImg">🖼 사진</button>
+            <button class="btn add sm" id="addAsset">🎨 에셋(무료)</button>
             <button class="btn add sm" id="addPip">🎬 영상 위 영상</button>
           </div>
           <div class="amcat">글자 · 그림</div>
@@ -510,6 +511,26 @@
     <p class="s">누르면 현재 위치에 추가. 끌어서 위치·크기, 막대로 시간 조절.</p>
     <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:3px;max-height:320px;overflow:auto"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="emojiCancel">닫기</button></div>
+  </div>
+</div>
+
+<!-- 에셋 라이브러리 모달 -->
+<div class="modal hide" id="assetModal">
+  <div class="modalcard" style="max-width:640px;width:92vw">
+    <h2>🎨 에셋 라이브러리</h2>
+    <p class="s">배경은 키 없이 바로 사용 · 무료 사진/영상은 검색해서 클릭하면 추가돼요.</p>
+    <div class="row" id="assetTabs" style="gap:6px;margin:6px 0 10px">
+      <button class="seg-r on" data-at="bg">🎨 배경</button>
+      <button class="seg-r" data-at="photo">🖼 사진</button>
+      <button class="seg-r" data-at="video">🎬 영상</button>
+    </div>
+    <div class="row" id="assetSearchRow" style="gap:6px;margin-bottom:10px;display:none">
+      <input type="text" id="assetQ" placeholder="검색어 (예: 바다, 카페, 도시 야경)" style="flex:1">
+      <button class="btn sm" id="assetGo">검색</button>
+    </div>
+    <div id="assetMsg" class="s" style="margin-bottom:8px"></div>
+    <div id="assetGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:50vh;overflow:auto"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="assetCancel">닫기</button></div>
   </div>
 </div>
 
@@ -1088,6 +1109,7 @@ function stageCtxMenu(e){e.preventDefault();const v=$("#srcA"),r=v.getBoundingCl
     {label:"😀 여기에 이모지",fn:()=>{A._tokXY={x,y};$("#addEmoji").click();}},
     {label:"🔷 여기에 도형",fn:()=>{A._tokXY={x,y};$("#addShape").click();}},
     {label:"🖼 여기에 이미지/로고",fn:()=>{A._dropXY={x,y};$("#logoFile").click();}},
+    {label:"🎨 에셋(무료 배경·사진·영상)",fn:()=>openAssets()},
     {label:"📋 붙여넣기(Ctrl+V)",fn:()=>{$("#msgA").textContent="복사한 그림/글을 Ctrl+V 로 붙여넣으세요";}},
     "-",
     {label:"🎬 영상 이어붙이기",fn:()=>$("#addClipVid").click()},
@@ -1323,6 +1345,51 @@ $("#emojiModal").onclick=e=>{if(e.target.id==="emojiModal")$("#emojiModal").clas
 async function addEmoji(ch){$("#emojiModal").classList.add("hide");$("#msgA").textContent="이모지 추가…";
   try{const j=await(await fetch("/api/emoji",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:A.id,ch})})).json();
     if(j.error){$("#msgA").textContent="실패: "+j.error;return;}addTokenOverlay(j.token,j.url,ch,0.18);}catch(e){$("#msgA").textContent="실패";}}
+// ===== 에셋 라이브러리 (무료 배경 + 스톡 사진/영상) =====
+let ASSET_TAB="bg",ASSET_BGS=null;
+function openAssets(){$("#assetModal").classList.remove("hide");setAssetTab("bg");}
+$("#addAsset").onclick=openAssets;
+$("#assetCancel").onclick=()=>$("#assetModal").classList.add("hide");
+$("#assetModal").onclick=e=>{if(e.target.id==="assetModal")$("#assetModal").classList.add("hide");};
+document.querySelectorAll("#assetTabs [data-at]").forEach(b=>b.onclick=()=>setAssetTab(b.dataset.at));
+function setAssetTab(tab){ASSET_TAB=tab;
+  document.querySelectorAll("#assetTabs [data-at]").forEach(b=>b.classList.toggle("on",b.dataset.at===tab));
+  $("#assetSearchRow").style.display=tab==="bg"?"none":"flex";$("#assetMsg").textContent="";
+  if(tab==="bg")loadBgs();else{$("#assetGrid").innerHTML="";$("#assetMsg").textContent="검색어를 입력하고 검색하세요 (무료 사진·영상)";}}
+async function loadBgs(){const g=$("#assetGrid");
+  if(!ASSET_BGS){try{ASSET_BGS=(await(await fetch("/api/library/backgrounds")).json()).backgrounds||[];}catch(e){ASSET_BGS=[];}}
+  g.innerHTML="";ASSET_BGS.forEach(b=>{const c=assetCell(b.url,b.label);
+    c.onclick=()=>{addBgOverlay(b.id,b.url,b.label);$("#assetModal").classList.add("hide");};g.appendChild(c);});}
+function assetCell(thumb,label){const d=document.createElement("div");
+  d.style.cssText="cursor:pointer;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)";
+  d.innerHTML=`<div style="width:100%;aspect-ratio:1;background:#eee url('${thumb}') center/cover"></div>`+
+    `<div style="font-size:10px;padding:3px 5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label||""}</div>`;
+  return d;}
+function addBgOverlay(preset,url,name){pushHistory();const tot=layout().total||10;
+  const t=Math.min(curOut(),Math.max(0,tot-1)),end=Math.min(tot,t+4);
+  A.overlays.push({id:++cid,preset:preset,url:url,name:name||"배경",x:0.5,y:0.5,scale:1.0,scaleH:1.0,opacity:1,start:t,end:end,fade:0.2,kf:[]});
+  A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();$("#msgA").textContent="배경 추가 — 크기/투명도로 조절";}
+async function assetSearch(){const q=$("#assetQ").value.trim();const g=$("#assetGrid");g.innerHTML="";
+  $("#assetMsg").textContent="검색 중…";
+  try{const j=await(await fetch(`/api/stock/search?kind=${ASSET_TAB}&q=${encodeURIComponent(q)}`)).json();
+    const av=j.available||{};if(!av.pexels&&!av.pixabay){
+      $("#assetMsg").innerHTML='무료 스톡 키가 없어요. <a href="/api/admin" target="_blank" style="color:var(--accent)">⚙ 관리자</a>에서 Pexels/Pixabay 키를 넣으면 켜집니다.';return;}
+    const items=j.items||[];if(!items.length){$("#assetMsg").textContent="결과가 없어요. 다른 검색어로.";return;}
+    $("#assetMsg").textContent=items.length+"개 — 클릭하면 추가";
+    items.forEach(it=>{const c=assetCell(it.thumb,(it.kind==="video"?"🎬 ":"")+(it.provider||""));
+      c.onclick=()=>importStock(it,c);g.appendChild(c);});
+  }catch(e){$("#assetMsg").textContent="검색 실패: "+e;}}
+$("#assetGo").onclick=assetSearch;$("#assetQ").onkeydown=e=>{if(e.key==="Enter")assetSearch();};
+async function importStock(it,cell){if(cell)cell.style.opacity=.5;$("#assetMsg").textContent="가져오는 중… (잠시)";
+  try{const j=await(await fetch("/api/stock/import",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:A.id,url:it.url,kind:it.kind,name:it.name})})).json();
+    if(j.error){$("#assetMsg").textContent="실패: "+j.error;if(cell)cell.style.opacity=1;return;}
+    if(j.kind==="video"){A.srcMeta[j.token]={kind:"video",url:j.url,name:j.name,duration:j.duration};
+      pushHistory();A.clips.push({id:++cid,src:j.token,srcIn:0,srcEnd:j.duration||5,transition:{type:"none",dur:0.5}});
+      const idx=A.clips.length-1;A.playIdx=idx;redraw();select("clip",idx);seekOut(layout().starts[idx]);save();}
+    else addTokenOverlay(j.token,j.url,j.name,0.5);
+    $("#assetModal").classList.add("hide");$("#msgA").textContent="에셋 추가됨 ("+(j.name||"")+")";
+  }catch(e){$("#assetMsg").textContent="실패: "+e;if(cell)cell.style.opacity=1;}}
 $("#addSfx").onclick=()=>$("#sfxFile").click();
 $("#sfxFile").onchange=async()=>{const f=$("#sfxFile").files[0];if(!f)return;const fd=new FormData();fd.append("id",A.id);fd.append("file",f);
   const j=await(await fetch("/api/sfx",{method:"POST",body:fd})).json();if(j.error)return;
