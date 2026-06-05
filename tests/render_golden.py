@@ -110,6 +110,10 @@ def main() -> int:
     ok(hs == 0.0 and abs(he - ld) < 0.5 and sg is None, "target>길이면 통째(ASR 생략)", f"{hs}-{he:.1f}")
     wc = shortify.window_cues([{"start": 13.0, "end": 15.0, "text": "하이"}], 12.0, 20.0)
     ok(len(wc) == 1 and abs(wc[0]["start"] - 1.0) < .01, "창 자막 0기준 오프셋", str(wc))
+    g = shortify._greedy([(0, 5), (2, 9), (10, 8), (30, 7)], 40.0, 8.0, 3)
+    ok(len(g) <= 3 and all(g[i][1] <= g[i + 1][0] for i in range(len(g) - 1)), "멀티: greedy 비겹침 상위N", str(g))
+    gg = shortify._greedy(shortify._energy_scores(lp, ld, 8.0), ld, 8.0, 3)
+    ok(any(s >= 10 for s, e, sc in gg), "멀티: 에너지 큰소리 구간 포함", str(gg))
 
     print("[8] 자동 썸네일(band/bold/쇼츠비율 + 제목 글자)")
     from app import thumbmaker  # noqa: E402

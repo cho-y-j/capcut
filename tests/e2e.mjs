@@ -170,6 +170,21 @@ const run = async () => {
   const dl = await p.$eval('#thumbDl', a => a.getAttribute('href'));
   ok(thumbOk && /\/out\/thumb_/.test(dl || ''), '썸네일 생성→미리보기+다운로드 링크', dl || '(없음)');
 
+  // --- 7e. 멀티 하이라이트 ---
+  console.log('[7e] 여러 하이라이트');
+  const LONG2 = process.env.TEST_VIDEO_LONG || '/tmp/oncut_golden/long.mp4';
+  await p.goto(BASE, { waitUntil: 'networkidle' });
+  await p.setInputFiles('#hlFile', LONG2);
+  const hlShown = await p.waitForFunction(() => !document.querySelector('#hlModal').classList.contains('hide')
+    && document.querySelectorAll('#hlGrid > div').length > 0, { timeout: 20000 }).then(() => true).catch(() => false);
+  const cands = await p.$$eval('#hlGrid > div', e => e.length);
+  ok(hlShown && cands >= 1, '하이라이트 후보 모달 표시', `${cands}개`);
+  await p.evaluate(() => document.querySelector('#hlGrid > div button').click());
+  await p.waitForFunction(() => { const e = document.querySelector('#editorA'); return e && !e.classList.contains('hide'); }, { timeout: 20000 }).catch(() => {});
+  await p.waitForTimeout(400);
+  const hlsh = await p.evaluate(() => ({ fmt: A.format, clips: A.clips.length }));
+  ok(hlsh.fmt === 'shorts' && hlsh.clips === 1, '후보 선택→9:16 숏폼 진입', JSON.stringify(hlsh));
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));

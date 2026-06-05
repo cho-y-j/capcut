@@ -356,7 +356,9 @@
           <span class="s">AI가 가장 알찬 구간을 골라 세로(9:16)로</span>
           <select id="shortLen" style="width:auto;font-size:12px"><option value="15">15초</option><option value="30" selected>30초</option><option value="45">45초</option><option value="60">60초</option></select>
           <button class="btn sm" id="shortBtn">✂️ 숏폼 만들기</button>
+          <button class="btn ghost sm" id="hlBtn">🎯 여러 하이라이트</button>
           <input type="file" id="shortFile" accept="video/*" class="hide">
+          <input type="file" id="hlFile" accept="video/*" class="hide">
         </div>
       </div>
     </section>
@@ -542,6 +544,16 @@
     <p class="s">누르면 현재 위치에 추가. 끌어서 위치·크기, 막대로 시간 조절.</p>
     <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:3px;max-height:320px;overflow:auto"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="emojiCancel">닫기</button></div>
+  </div>
+</div>
+
+<!-- 멀티 하이라이트 선택 모달 -->
+<div class="modal hide" id="hlModal">
+  <div class="modalcard" style="max-width:640px;width:92vw">
+    <h2>🎯 하이라이트 고르기</h2>
+    <p class="s" id="hlMsg">AI가 알찬 구간들을 찾았어요. 숏폼으로 만들 구간을 고르세요.</p>
+    <div id="hlGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="hlCancel">닫기</button></div>
   </div>
 </div>
 
@@ -824,6 +836,33 @@ let lastModeAFile=null;
 wireDrop($("#dropA"),$("#fileA"),files=>{if(files[0]){lastModeAFile=files[0];uploadA(files[0]);}});
 // ✂️ 긴 영상 → 숏폼 자동 추출
 $("#shortBtn").onclick=()=>$("#shortFile").click();
+// 🎯 여러 하이라이트
+let HL_ID=null;
+$("#hlBtn").onclick=()=>$("#hlFile").click();
+$("#hlFile").onchange=async()=>{const f=$("#hlFile").files[0];if(!f)return;const btn=$("#hlBtn");const old=btn.textContent;
+  btn.disabled=true;btn.textContent="AI 분석 중…";
+  try{const fd=new FormData();fd.append("file",f);fd.append("target",$("#shortLen").value);fd.append("count","3");
+    const j=await(await fetch("/api/highlights",{method:"POST",body:fd})).json();
+    if(j.error){alert("분석 실패: "+j.error);return;}
+    HL_ID=j.id;const g=$("#hlGrid");g.innerHTML="";
+    $("#hlMsg").textContent=(j.ai?"AI 자막 기준":"오디오 기준")+"으로 "+j.candidates.length+"개 구간을 찾았어요. 고르면 9:16 숏폼으로.";
+    j.candidates.forEach(c=>{const card=document.createElement("div");
+      card.style.cssText="cursor:pointer;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)";
+      card.innerHTML=`<div style="width:100%;aspect-ratio:16/9;background:#000 ${c.thumb?`url('${c.thumb}') center/cover`:''}"></div>`+
+        `<div style="padding:7px 9px"><div style="font-size:12px;font-weight:700">${Math.round(c.start)}s ~ ${Math.round(c.end)}s · ${c.dur}초</div>`+
+        `<button class="btn sm" style="width:100%;margin-top:6px">이 구간으로 ✂️</button></div>`;
+      card.querySelector("button").onclick=()=>openHighlight(c);g.appendChild(card);});
+    $("#hlModal").classList.remove("hide");
+  }catch(e){alert("분석 실패: "+e);}finally{btn.disabled=false;btn.textContent=old;$("#hlFile").value="";}};
+async function openHighlight(c){$("#hlMsg").textContent="숏폼 만드는 중…";
+  try{const j=await(await fetch("/api/highlight_open",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:HL_ID,start:c.start,end:c.end,goal:"shorts"})})).json();
+    if(j.error){$("#hlMsg").textContent="실패: "+j.error;return;}
+    $("#hlModal").classList.add("hide");initEditor(j.id,j.res,j.extras||{});
+    $("#msgA").textContent="✂️ 하이라이트 "+Math.round(c.start)+"~"+Math.round(c.end)+"s 숏폼 완성";
+  }catch(e){$("#hlMsg").textContent="실패: "+e;}}
+$("#hlCancel").onclick=()=>$("#hlModal").classList.add("hide");
+$("#hlModal").onclick=e=>{if(e.target.id==="hlModal")$("#hlModal").classList.add("hide");};
 $("#shortFile").onchange=async()=>{const f=$("#shortFile").files[0];if(!f)return;const btn=$("#shortBtn");
   const old=btn.textContent;btn.disabled=true;btn.textContent="AI 분석 중… (조금 걸려요)";
   try{const fd=new FormData();fd.append("file",f);fd.append("target",$("#shortLen").value);fd.append("goal","shorts");

@@ -25,6 +25,7 @@ EXPORT: Dict[str, dict] = {}      # id -> {pct, done, url, error}
 PREVIEW: Dict[str, dict] = {}     # id -> {pct, done, url, error}
 AUTOCUT: Dict[str, dict] = {}     # id -> {pct, done, res, extras, error}
 AUTOCUT_PLAN: Dict[str, dict] = {}  # id -> {fmt, media, plan} (확정 전 임시 보관)
+HL: Dict[str, dict] = {}          # id -> {path, segs, dur, w, h, fps} (멀티 하이라이트 분석)
 
 JOBS_FILE = config.UPLOAD_DIR / "_jobs.json"
 
@@ -333,6 +334,70 @@ async def shortify_ep(target: str = Form("30"), goal: str = Form("shorts"),
     save_jobs()
     return JSONResponse({"id": jid, "res": res, "extras": extras,
                          "highlight": {"start": start, "end": end, "ai": bool(segs)}})
+
+
+@app.post("/api/highlights")
+async def highlights_ep(target: str = Form("30"), count: str = Form("3"),
+                        file: UploadFile = File(...)) -> JSONResponse:
+    """긴 영상 → 여러 하이라이트 후보(썸네일 포함). 사용자가 골라 숏폼으로."""
+    import asyncio
+    from . import shortify, thumbmaker
+    jid = uuid.uuid4().hex[:12]
+    ext = Path(file.filename or "v.mp4").suffix or ".mp4"
+    dest = config.UPLOAD_DIR / f"{jid}_hl{ext}"
+    with open(dest, "wb") as out:
+        while chunk := await file.read(1 << 20):
+            out.write(chunk)
+    try:
+        tsec = max(8.0, min(90.0, float(target or 30)))
+        ncand = max(1, min(6, int(float(count or 3))))
+    except ValueError:
+        tsec, ncand = 30.0, 3
+    try:
+        from .silence import probe_video
+        mw, mh, mfps = await asyncio.to_thread(probe_video, str(dest))
+    except Exception:  # noqa: BLE001
+        mw, mh, mfps = 1280, 720, 30.0
+    try:
+        wins, segs = await asyncio.to_thread(shortify.pick_highlights, str(dest), tsec, ncand)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"분석 실패: {e}"}, status_code=500)
+    HL[jid] = {"path": str(dest), "segs": segs, "dur": (wins[-1][1] if wins else 0),
+               "w": mw, "h": mh, "fps": mfps}
+    JOBS[jid] = {"mode": "a", "path": str(dest), "filename": "하이라이트"}
+    cands = []
+    for i, (s, e, sc) in enumerate(wins):
+        thumb = config.OUTPUT_DIR / f"hlthumb_{jid}_{i}.jpg"
+        try:
+            await asyncio.to_thread(thumbmaker._extract, str(dest), (s + e) / 2, str(thumb))
+            turl = f"/out/{thumb.name}" if thumb.exists() else None
+        except Exception:  # noqa: BLE001
+            turl = None
+        cands.append({"i": i, "start": s, "end": e, "score": sc,
+                      "dur": round(e - s, 1), "thumb": turl, "ai": bool(segs)})
+    save_jobs()
+    return JSONResponse({"id": jid, "candidates": cands, "ai": bool(segs)})
+
+
+@app.post("/api/highlight_open")
+async def highlight_open(req: Request) -> JSONResponse:
+    """선택한 하이라이트 구간 → 9:16 숏폼 편집기 프로젝트."""
+    from . import shortify
+    body = await req.json()
+    st = HL.get(body.get("id"))
+    if not st:
+        return JSONResponse({"error": "분석이 만료됐어요. 다시 시도해 주세요."}, status_code=404)
+    start = float(body.get("start", 0)); end = float(body.get("end", 0))
+    goal = body.get("goal") or "shorts"
+    cues = shortify.window_cues(st.get("segs"), start, end)
+    jid = body.get("id")
+    res = {"mode": "a", "duration": round(end - start, 2), "w": st["w"], "h": st["h"], "fps": st["fps"],
+           "clips": [{"srcIn": start, "srcEnd": end, "src": "0",
+                      "transition": {"type": "none", "dur": 0.5}}], "cuts": [], "cues": cues}
+    extras = {"format": goal if goal in _AC_DIMS else "shorts", "clips": res["clips"], "srcMeta": {}}
+    JOBS[jid]["result"] = res
+    save_jobs()
+    return JSONResponse({"id": jid, "res": res, "extras": extras})
 
 
 @app.post("/api/raw_open")

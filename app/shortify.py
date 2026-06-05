@@ -51,23 +51,66 @@ def _energy_window(path: str, dur: float, target: float) -> tuple[float, float]:
     return start, min(dur, start + target)
 
 
-def pick_highlight(path: str, target: float = 30.0):
-    """→ (start, end, segments|None). segments는 ASR 성공 시 자막 재사용용."""
-    dur = probe_duration(path)
-    if dur <= target * 1.12:                 # 이미 충분히 짧으면 통째로
-        return 0.0, dur, None
-    segs = None
+def _density_scores(segs: List[dict], dur: float, target: float):
+    starts = sorted({max(0.0, float(s["start"])) for s in segs})
+    starts = [t for t in starts if t <= max(0.0, dur - target)] or [0.0]
+    return [(t, float(sum(len((s.get("text") or "")) for s in segs
+             if float(s["end"]) > t and float(s["start"]) < t + target))) for t in starts]
+
+
+def _energy_scores(path: str, dur: float, target: float):
+    try:
+        pk = waveform.peaks(path, buckets=600)
+    except Exception:  # noqa: BLE001
+        pk = []
+    if not pk:
+        s = min(dur * 0.1, max(0.0, dur - target))
+        return [(s, 1.0)]
+    n = len(pk); win = max(1, int(n * target / dur))
+    pre = [0.0]
+    for v in pk:
+        pre.append(pre[-1] + v)
+    return [(i / n * dur, pre[i + win] - pre[i]) for i in range(0, max(1, n - win + 1))]
+
+
+def _greedy(scored, dur: float, target: float, count: int, gap: float = 1.0):
+    """점수 내림차순으로 비겹침(+gap) 상위 count개 → 시간순 정렬."""
+    out: list = []
+    for t, sc in sorted(scored, key=lambda x: -x[1]):
+        if len(out) >= count:
+            break
+        e = min(dur, t + target)
+        if all(not (t < oe + gap and e > os - gap) for os, oe, _ in out):
+            out.append((round(t, 2), round(e, 2), round(sc, 1)))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def _segments(path: str):
     try:
         from . import asr
         tr = asr._transcribe_sync(path, config.WHISPER_MODEL, "ko")
-        segs = tr.get("segments") or None
+        return tr.get("segments") or None
     except Exception:  # noqa: BLE001
-        segs = None
-    if segs:
-        s, e = _density_window(segs, dur, target)
-    else:
-        s, e = _energy_window(path, dur, target)
-    return round(s, 2), round(e, 2), segs
+        return None
+
+
+def pick_highlights(path: str, target: float = 30.0, count: int = 3):
+    """→ ([(start,end,score), ...] 시간순, segments|None). 상위 count개 비겹침 구간."""
+    dur = probe_duration(path)
+    if dur <= target * 1.12:
+        return [(0.0, round(dur, 2), 1.0)], None
+    segs = _segments(path)
+    scored = _density_scores(segs, dur, target) if segs else _energy_scores(path, dur, target)
+    wins = _greedy(scored, dur, target, max(1, count))
+    return (wins or [(0.0, round(min(dur, target), 2), 1.0)]), segs
+
+
+def pick_highlight(path: str, target: float = 30.0):
+    """→ (start, end, segments|None). 단일 최고 구간(멀티의 1개)."""
+    wins, segs = pick_highlights(path, target, 1)
+    s, e, _ = wins[0]
+    return s, e, segs
 
 
 def window_cues(segs: Optional[List[dict]], start: float, end: float) -> List[dict]:
