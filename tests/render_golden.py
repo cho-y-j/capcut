@@ -111,6 +111,17 @@ def main() -> int:
     wc = shortify.window_cues([{"start": 13.0, "end": 15.0, "text": "하이"}], 12.0, 20.0)
     ok(len(wc) == 1 and abs(wc[0]["start"] - 1.0) < .01, "창 자막 0기준 오프셋", str(wc))
 
+    print("[8] 자동 썸네일(band/bold/쇼츠비율 + 제목 글자)")
+    from app import thumbmaker  # noqa: E402
+    from PIL import Image  # noqa: E402
+    for style, fmt, ww, hh in [("band", "wide", 1280, 720), ("bold", "wide", 1280, 720), ("band", "shorts", 1080, 1920)]:
+        tp = str(TMP / f"thumb_{style}_{fmt}.jpg")
+        thumbmaker.make_thumbnail(str(TMP / "long.mp4"), "제주 여행 브이로그 성산일출봉", tp, style=style, fmt=fmt)
+        im = np.asarray(Image.open(tp).convert("RGB"))
+        white = int(((im[:, :, 0] > 235) & (im[:, :, 1] > 235) & (im[:, :, 2] > 235)).sum())
+        ok(im.shape[1] == ww and im.shape[0] == hh and white > 500,
+           f"썸네일 {style}/{fmt} {ww}x{hh}+제목", f"{im.shape[1]}x{im.shape[0]} white={white}")
+
     print("[6] 도형·이모지 PNG 생성")
     arr = str(TMP / "arrow.png"); shapes.make_shape("arrow", arr, color="#ff3d8b", w=400, h=140)
     ok(Path(arr).exists() and Path(arr).stat().st_size > 0, "화살표 도형 PNG")

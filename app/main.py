@@ -547,6 +547,31 @@ async def gen_subtitles(req: Request) -> JSONResponse:
     return JSONResponse({"cues": [{"start": c.start, "end": c.end, "text": c.text} for c in cues]})
 
 
+@app.post("/api/thumbnail")
+async def gen_thumbnail(req: Request) -> JSONResponse:
+    """현재 영상에서 좋은 장면 + 제목으로 썸네일 PNG 자동 생성."""
+    import asyncio
+    from . import thumbmaker
+    body = await req.json()
+    job = JOBS.get(body.get("id"))
+    if not job or "path" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    title = (body.get("title") or "").strip() or "오늘의 영상"
+    style = body.get("style") or "band"
+    fmt = body.get("format") or "wide"
+    t = body.get("t")
+    tok = uuid.uuid4().hex[:8]
+    out = config.OUTPUT_DIR / f"thumb_{body.get('id')}_{tok}.jpg"
+    try:
+        await asyncio.to_thread(thumbmaker.make_thumbnail, job["path"], title, str(out),
+                                t=(float(t) if t is not None else None), style=style,
+                                fmt=fmt, brand_color=(load_brandkit().get("color") or "#ff3d8b"))
+    except Exception as e:  # noqa: BLE001
+        import traceback; traceback.print_exc()
+        return JSONResponse({"error": f"썸네일 생성 실패: {e}"}, status_code=500)
+    return JSONResponse({"url": f"/out/{out.name}", "style": style})
+
+
 @app.post("/api/titles")
 async def gen_titles(req: Request) -> JSONResponse:
     """대본/자막 → 제목·해시태그·설명 추천 (AI 있으면 AI, 없으면 규칙기반)."""

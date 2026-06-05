@@ -161,6 +161,15 @@ const run = async () => {
   const sh = await p.evaluate(() => ({ fmt: A.format, clips: A.clips.length, dur: A.duration }));
   ok(sh.fmt === 'shorts' && sh.clips === 1, '숏폼 추출→9:16 단일 클립 진입', JSON.stringify(sh));
 
+  // --- 7d. 자동 썸네일 ---
+  console.log('[7d] 자동 썸네일');
+  await p.evaluate(() => showThumb());
+  const thumbOk = await p.waitForFunction(() => {
+    const i = document.querySelector('#thumbImg'); return i && i.style.display !== 'none' && i.naturalWidth > 100;
+  }, { timeout: 15000 }).then(() => true).catch(() => false);
+  const dl = await p.$eval('#thumbDl', a => a.getAttribute('href'));
+  ok(thumbOk && /\/out\/thumb_/.test(dl || ''), '썸네일 생성→미리보기+다운로드 링크', dl || '(없음)');
+
   // --- 8. JS 에러 없음 ---
   console.log('[8] 콘솔');
   ok(errs.length === 0, 'JS 런타임 에러 없음', errs.slice(0, 2).join(' | '));

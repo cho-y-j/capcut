@@ -484,6 +484,7 @@
             <button class="btn add sm" id="addGrade">🎨 색감</button>
             <button class="btn add sm" id="addCut">✂️ 자르기</button>
             <button class="btn add sm" id="addMeta">📋 제목·태그</button>
+            <button class="btn add sm" id="addThumb">🖼 썸네일</button>
           </div>
           <div class="amcat">빠른 추가 (버튼 · 효과음)</div>
           <div class="chips" id="presetChips"></div>
@@ -541,6 +542,28 @@
     <p class="s">누르면 현재 위치에 추가. 끌어서 위치·크기, 막대로 시간 조절.</p>
     <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:3px;max-height:320px;overflow:auto"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn ghost" id="emojiCancel">닫기</button></div>
+  </div>
+</div>
+
+<!-- 자동 썸네일 모달 -->
+<div class="modal hide" id="thumbModal">
+  <div class="modalcard" style="max-width:560px;width:92vw">
+    <h2>🖼 썸네일 자동 생성</h2>
+    <p class="s">영상에서 좋은 장면을 골라 제목을 얹었어요. 제목·스타일·장면을 바꿔보세요.</p>
+    <input type="text" id="thumbTitle" placeholder="썸네일 제목" style="margin-bottom:8px">
+    <div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="seg-r on" id="thStyleBand" data-st="band">하단 띠</button>
+      <button class="seg-r" id="thStyleBold" data-st="bold">중앙 큰글자</button>
+      <button class="btn ghost sm" id="thShuffle">🎲 다른 장면</button>
+      <button class="btn sm" id="thGen">다시 만들기</button>
+    </div>
+    <div id="thumbWrap" style="background:#000;border-radius:10px;overflow:hidden;min-height:120px;display:flex;align-items:center;justify-content:center">
+      <span class="s" id="thumbMsg">생성 중…</span><img id="thumbImg" style="width:100%;display:none">
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:space-between">
+      <a id="thumbDl" class="btn sm" download="thumbnail.jpg" href="#" style="text-decoration:none">⬇ 다운로드</a>
+      <button class="btn ghost" id="thumbCancel">닫기</button>
+    </div>
   </div>
 </div>
 
@@ -1717,6 +1740,27 @@ async function showMeta(){$("#metaModal").classList.remove("hide");$("#metaBody"
   }catch(e){$("#metaBody").innerHTML='<div class="s">추천 실패: '+e+'</div>';}}
 const _sgT=$("#sgTitle");if(_sgT)_sgT.onclick=showMeta;
 const _amT=$("#addMeta");if(_amT)_amT.onclick=showMeta;
+// 🖼 자동 썸네일
+let THUMB_STYLE="band",THUMB_T=null;
+async function genThumb(){const img=$("#thumbImg"),msg=$("#thumbMsg");img.style.display="none";msg.style.display="";msg.textContent="생성 중…";
+  try{const body={id:A.id,title:$("#thumbTitle").value||"오늘의 영상",style:THUMB_STYLE,format:A.format||"wide"};
+    if(THUMB_T!=null)body.t=THUMB_T;
+    const j=await(await fetch("/api/thumbnail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+    if(j.error){msg.textContent="실패: "+j.error;return;}
+    img.src=j.url+"?_="+Date.now();img.onload=()=>{img.style.display="";msg.style.display="none";};
+    $("#thumbDl").href=j.url;
+  }catch(e){msg.textContent="실패: "+e;}}
+async function showThumb(){$("#thumbModal").classList.remove("hide");THUMB_T=null;
+  let title=projectScript().split(/[.!?\n]/)[0]||"";
+  if(!title){try{const m=await(await fetch("/api/titles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({script:projectScript(),format:A.format||"wide"})})).json();title=m.title||"오늘의 영상";}catch(e){title="오늘의 영상";}}
+  $("#thumbTitle").value=title.slice(0,30);genThumb();}
+const _amTh=$("#addThumb");if(_amTh)_amTh.onclick=showThumb;
+const _thG=$("#thGen");if(_thG)_thG.onclick=genThumb;
+const _thS=$("#thShuffle");if(_thS)_thS.onclick=()=>{THUMB_T=Math.random()* (A.duration||10)*0.9+0.5;genThumb();};
+[["thStyleBand","band"],["thStyleBold","bold"]].forEach(([id,st])=>{const b=$("#"+id);if(b)b.onclick=()=>{THUMB_STYLE=st;
+  $("#thStyleBand").classList.toggle("on",st==="band");$("#thStyleBold").classList.toggle("on",st==="bold");genThumb();};});
+const _thC=$("#thumbCancel");if(_thC)_thC.onclick=()=>$("#thumbModal").classList.add("hide");
+$("#thumbModal")&&($("#thumbModal").onclick=e=>{if(e.target.id==="thumbModal")$("#thumbModal").classList.add("hide");});
 const _mC=$("#metaCancel");if(_mC)_mC.onclick=()=>$("#metaModal").classList.add("hide");
 $("#metaModal")&&($("#metaModal").onclick=e=>{if(e.target.id==="metaModal")$("#metaModal").classList.add("hide");});
 const _sgR=$("#sgRefresh");if(_sgR)_sgR.onclick=()=>{A._sgDismiss={};renderSuggestions();};
