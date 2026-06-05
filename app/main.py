@@ -1518,13 +1518,43 @@ button{{background:#22c55e;color:#04130a;border:0;border-radius:8px;padding:10px
 <button onclick="saveStock()">저장</button> <span id=smsg class=s></span>
 </div>
 <div class=card>
-<h1 style=font-size:14px>🎬 템플릿(틀) 만들기 — 상하 띠</h1>
-<p class=s>위아래 색 띠 + 중앙 영상 틀을 만들어 등록. AI 첫 컷의 템플릿 갤러리에 바로 나옵니다.</p>
-<input id=tn placeholder="템플릿 이름 (예: 카페 세로띠)">
-<div class=s style=margin-top:6px>띠 색 <input id=tb type=color value=#1f1d3d style=width:46px;vertical-align:middle>
- · 중앙영상 위치 <input id=ty type=number value=20 min=0 max=80 style=width:60px>% · 높이 <input id=th type=number value=60 min=20 max=100 style=width:60px>%</div>
-<button onclick="saveT()" style=margin-top:8px>틀 등록</button> <span id=tmsg class=s></span>
-<p class=s style=margin-top:10px>외부에서 만든 템플릿 JSON 가져오기:
+<h1 style=font-size:14px>🎬 제공 템플릿 만들기 (사용자 길잡이)</h1>
+<p class=s>색감·자막·전환·CTA·상하 띠까지 정해 등록하면, 모든 사용자의 템플릿 갤러리에
+'제공 템플릿'으로 떠서 영상 만들 때 길잡이가 됩니다.</p>
+<div style="display:flex;gap:14px;flex-wrap:wrap">
+ <div style="flex:1;min-width:240px">
+  <input id=tn placeholder="템플릿 이름 (예: 카페 홍보)">
+  <input id=tdesc placeholder="길잡이 설명 (예: 메뉴 강조·따뜻한 톤)">
+  <div class=s style=margin-top:8px>색감
+   <select id=tgrade><option value=original>원본</option><option value=vivid selected>선명</option><option value=warm>따뜻필름</option><option value=cool>시원</option><option value=vintage>빈티지</option><option value=bw>흑백</option></select>
+   · 전환 <select id=ttrans><option value=none>없음</option><option value=dissolve selected>디졸브</option><option value=fadeblack>검정</option><option value=slideleft>슬라이드</option><option value=wipeleft>와이프</option></select></div>
+  <div class=s style=margin-top:8px>자막색 <input id=tcol type=color value=#ffffff style=width:40px;vertical-align:middle>
+   외곽선 <input id=toc type=color value=#000000 style=width:40px;vertical-align:middle>
+   두께 <input id=tow type=number value=3 min=0 max=8 style=width:48px>
+   크기 <input id=tfs type=number value=54 min=20 max=120 style=width:56px></div>
+  <div class=s style=margin-top:8px>자막위치
+   <select id=talign><option value=bottom selected>하단</option><option value=center>중앙</option><option value=top>상단</option></select>
+   · 텍스트 애니 <select id=tanim><option value=pop selected>팝</option><option value=none>없음</option><option value=grow>커짐</option><option value=shrink>작아짐</option></select></div>
+  <div class=s style=margin-top:8px>장면길이 <input id=tdur type=number value=3 min=1 max=10 step=0.5 style=width:56px>초
+   · 텍스트색 <input id=ttcol type=color value=#ffffff style=width:40px;vertical-align:middle></div>
+  <div class=s style=margin-top:8px><label><input type=checkbox id=toutro checked> 아웃트로(끝에 문구)</label>
+   <input id=tcta placeholder="CTA 문구 (예: 구독 부탁해요)" style=margin-top:4px></div>
+  <div class=s style=margin-top:8px><label><input type=checkbox id=tlay> 상하 띠 레이아웃</label>
+   띠색 <input id=tb type=color value=#1f1d3d style=width:40px;vertical-align:middle>
+   영상Y <input id=ty type=number value=20 min=0 max=80 style=width:52px>% 높이 <input id=th type=number value=60 min=20 max=100 style=width:52px>%</div>
+  <div class=s style=margin-top:8px>미리보기 비율 <select id=tfmt><option value=wide>16:9</option><option value=shorts selected>9:16</option><option value=square>1:1</option></select></div>
+  <button onclick="saveT()" style=margin-top:10px>＋ 제공 템플릿 등록</button> <span id=tmsg class=s></span>
+ </div>
+ <div style="width:150px;flex:none">
+  <div class=s style=margin-bottom:4px>미리보기</div>
+  <div id=tprev style="width:150px;background:#000;border-radius:8px;overflow:hidden;display:flex;flex-direction:column"></div>
+ </div>
+</div>
+<div style=margin-top:14px>
+ <div class=s style=margin-bottom:6px>등록된 제공 템플릿</div>
+ <div id=tlist class=s>불러오는 중…</div>
+</div>
+<p class=s style=margin-top:10px>외부 JSON 가져오기:
  <input id=tf type=file accept=.json style=display:inline;width:auto> <button onclick="upT()">업로드</button> <span id=umsg class=s></span></p>
 </div>
 <script>
@@ -1545,14 +1575,44 @@ document.getElementById('msg').textContent=r.ok?'저장됨 ✓':'실패';documen
 async function saveStock(){{const pex=document.getElementById('pex').value.trim(),pix=document.getElementById('pix').value.trim();
 const r=await fetch('/api/admin/keys',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{pexels:pex,pixabay:pix}})}});
 document.getElementById('smsg').textContent=r.ok?'저장됨 ✓ (편집기 새로고침)':'실패';document.getElementById('smsg').className='ok';}}
-async function saveT(){{const nm=document.getElementById('tn').value.trim();if(!nm){{document.getElementById('tmsg').textContent='이름을 입력';return;}}
-const y=+document.getElementById('ty').value/100,h=+document.getElementById('th').value/100;
-const t={{name:nm,desc:'상하 띠 템플릿',grade:{{brightness:1,contrast:1.06,saturation:1.15,warmth:0}},
-  sub:{{fontSize:50,color:'#ffffff',outlineColor:'#000000',outlineW:2,align:'bottom'}},
-  textAnim:'pop',textColor:'#ffffff',transition:'dissolve',dur:3.0,outro:true,cta:'',
-  layout:{{videoY:y,videoH:h,bg:document.getElementById('tb').value}}}};
+const GP={{original:{{brightness:1,contrast:1,saturation:1,warmth:0}},
+vivid:{{brightness:1.03,contrast:1.12,saturation:1.35,warmth:.1}},
+warm:{{brightness:1.02,contrast:1.05,saturation:1.1,warmth:.5}},
+cool:{{brightness:1,contrast:1.05,saturation:1.05,warmth:-.5}},
+vintage:{{brightness:1.05,contrast:.9,saturation:.72,warmth:.32}},
+bw:{{brightness:1,contrast:1.06,saturation:0,warmth:0}}}};
+const gV=id=>document.getElementById(id).value, gC=id=>document.getElementById(id).checked;
+function tplObj(){{
+  const lay=gC('tlay')?{{videoY:+gV('ty')/100,videoH:+gV('th')/100,bg:gV('tb')}}:null;
+  return {{name:gV('tn').trim(),desc:gV('tdesc').trim()||'제공 템플릿',grade:GP[gV('tgrade')],
+    sub:{{fontSize:+gV('tfs'),color:gV('tcol'),outlineColor:gV('toc'),outlineW:+gV('tow'),align:gV('talign')}},
+    textAnim:gV('tanim'),textColor:gV('ttcol'),transition:gV('ttrans'),dur:+gV('tdur'),
+    outro:gC('toutro'),cta:gV('tcta').trim(),layout:lay}};
+}}
+function buildPrev(){{const t=tplObj(),fmt=gV('tfmt');
+  const ar=fmt==='wide'?'16/9':fmt==='square'?'1/1':'9/16',g=t.grade;
+  const flt='brightness('+g.brightness+') contrast('+g.contrast+') saturate('+g.saturation+')';
+  const warm=g.warmth>.02?'rgba(255,150,50,'+(.4*g.warmth)+')':g.warmth<-.02?'rgba(60,150,255,'+(.4*-g.warmth)+')':'transparent';
+  const bg=t.layout?t.layout.bg:'#2a2a4a';
+  const vid='<div style="position:relative;flex:1;background:linear-gradient(135deg,#667,#334);filter:'+flt+'">'+
+    '<div style="position:absolute;inset:0;background:'+warm+'"></div>'+
+    '<div style="position:absolute;left:2px;right:2px;'+(t.sub.align==='top'?'top:6px':t.sub.align==='center'?'top:45%':'bottom:14px')+';text-align:center;font-size:11px;font-weight:800;color:'+t.sub.color+';text-shadow:0 0 2px '+t.sub.outlineColor+',0 0 2px '+t.sub.outlineColor+'">샘플 자막</div>'+
+    (t.outro&&t.cta?'<div style="position:absolute;bottom:3px;right:4px;font-size:8px;background:#ff3d8b;color:#fff;padding:1px 4px;border-radius:3px">'+t.cta+'</div>':'')+'</div>';
+  const prev=document.getElementById('tprev');prev.style.aspectRatio=ar;
+  prev.innerHTML=t.layout?('<div style="height:'+(t.layout.videoY*100)+'%;background:'+bg+'"></div>'+vid+'<div style="height:'+((1-t.layout.videoY-t.layout.videoH)*100)+'%;background:'+bg+'"></div>'):vid;
+}}
+['tgrade','ttrans','tcol','toc','tow','tfs','talign','tanim','tdur','ttcol','toutro','tcta','tlay','tb','ty','th','tfmt'].forEach(id=>{{const el=document.getElementById(id);if(el)el.addEventListener('input',buildPrev);}});
+buildPrev();
+async function loadTpls(){{try{{const ts=await(await fetch('/api/templates')).json();const cs=ts.filter(t=>t.custom);
+  const el=document.getElementById('tlist');
+  if(!cs.length){{el.textContent='아직 제공 템플릿이 없어요. 위에서 만들어 등록하세요.';return;}}
+  el.innerHTML=cs.map(t=>'<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px solid #222"><span style="flex:1">'+t.name+' — '+(t.desc||'')+'</span><button data-id="'+t.id+'" class=tdel style="background:#3a1a1a;color:#f88;padding:4px 8px">삭제</button></div>').join('');
+  el.querySelectorAll('.tdel').forEach(b=>b.onclick=async()=>{{if(!confirm('이 템플릿을 삭제할까요?'))return;await fetch('/api/admin/template/delete',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id:b.dataset.id}})}});loadTpls();}});
+}}catch(e){{document.getElementById('tlist').textContent='목록 로드 실패';}}}}
+loadTpls();
+async function saveT(){{const t=tplObj();if(!t.name){{document.getElementById('tmsg').textContent='이름을 입력하세요';return;}}
 const r=await fetch('/api/admin/template',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(t)}});
-document.getElementById('tmsg').textContent=r.ok?'등록됨 ✓':'실패';document.getElementById('tmsg').className='ok';}}
+const j=await r.json();document.getElementById('tmsg').textContent=j.ok?('등록됨 ✓ '+j.id):('실패: '+(j.error||''));document.getElementById('tmsg').className='ok';loadTpls();}}
 async function upT(){{const f=document.getElementById('tf').files[0];if(!f)return;const fd=new FormData();fd.append('file',f);
 const r=await fetch('/api/admin/template/upload',{{method:'POST',body:fd}});const j=await r.json();
 document.getElementById('umsg').textContent=j.ok?('가져옴 ✓ '+j.id):('실패: '+(j.error||'')); document.getElementById('umsg').className='ok';}}
