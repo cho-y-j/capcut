@@ -1036,10 +1036,13 @@ function elCtxMenu(e,type,i){e.preventDefault();e.stopPropagation();select(type,
 function laneCtxMenu(e){const inner=$("#tlInner");if(e.target.closest(".bar2,.vclip,.fmark,.tbadge"))return; // 요소 위는 요소메뉴가 처리
   e.preventDefault();const r=inner.getBoundingClientRect();const t=Math.max(0,(e.clientX-r.left)/A.pxPerSec);
   showCtx(e.clientX,e.clientY,[
-    {label:"➕ 여기에 텍스트",fn:()=>{seekOut(t);addText();}},
-    {label:"🖼 여기에 로고/이미지",fn:()=>{seekOut(t);$("#logoFile").click();}},
+    {label:"🔤 여기에 글자",fn:()=>{seekOut(t);addText();}},
+    {label:"😀 여기에 이모지",fn:()=>{seekOut(t);$("#addEmoji").click();}},
+    {label:"🔷 여기에 도형",fn:()=>{seekOut(t);$("#addShape").click();}},
+    {label:"🖼 여기에 이미지/로고",fn:()=>{seekOut(t);$("#logoFile").click();}},
+    "-",
     {label:"🔔 여기에 효과음",fn:()=>{seekOut(t);$("#sfxFile").click();}},
-    {label:"🎶 여기에 오디오(mp3)",fn:()=>{seekOut(t);$("#audioFile").click();}},
+    {label:"🎶 여기에 음악파일(mp3)",fn:()=>{seekOut(t);$("#audioFile").click();}},
     "-",{label:"⏱ 재생위치를 여기로",fn:()=>seekOut(t)}]);}
 $("#tlInner").addEventListener("contextmenu",laneCtxMenu);
 document.querySelector(".stage").addEventListener("contextmenu",stageCtxMenu);
@@ -1063,11 +1066,24 @@ function editorDrop(isStage){return async ev=>{ev.preventDefault();ev.stopPropag
 function stageCtxMenu(e){e.preventDefault();const v=$("#srcA"),r=v.getBoundingClientRect();
   const x=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y=Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
   showCtx(e.clientX,e.clientY,[
-    {label:"➕ 여기에 텍스트",fn:()=>{pushHistory();const t=curOut();
+    {label:"🔤 여기에 글자",fn:()=>{pushHistory();const t=curOut();
       A.texts.push({id:++cid,text:"텍스트",x,y,fontSize:64,color:"#ffffff",outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:t,end:t+3,anim:"pop"});
       A.sel={type:"text",i:A.texts.length-1};renderStage();redraw();renderInspector();save();
       setTimeout(()=>{const ta=$("#fldText");if(ta){ta.focus();ta.select();}},0);}},
-    {label:"🖼 여기에 로고/이미지",fn:()=>{A._dropXY={x,y};$("#logoFile").click();}}]);}
+    {label:"😀 여기에 이모지",fn:()=>{A._tokXY={x,y};$("#addEmoji").click();}},
+    {label:"🔷 여기에 도형",fn:()=>{A._tokXY={x,y};$("#addShape").click();}},
+    {label:"🖼 여기에 이미지/로고",fn:()=>{A._dropXY={x,y};$("#logoFile").click();}},
+    {label:"📋 붙여넣기(Ctrl+V)",fn:()=>{$("#msgA").textContent="복사한 그림/글을 Ctrl+V 로 붙여넣으세요";}},
+    "-",
+    {label:"🎬 영상 이어붙이기",fn:()=>$("#addClipVid").click()},
+    {label:"🖼 사진 이어붙이기",fn:()=>$("#addClipImg").click()},
+    {label:"🎬 영상 위 영상(PIP)",fn:()=>$("#addPip").click()},
+    "-",
+    {label:"🔔 효과음",fn:()=>$("#sfxFile").click()},
+    {label:"🎶 음악파일(mp3)",fn:()=>$("#audioFile").click()},
+    {label:"🎵 배경음악",fn:()=>{const a=$("#addMusic");a?a.click():$("#bgmFile").click();}},
+    "-",
+    {label:"🎨 색감 보정",fn:()=>{const a=$("#addGrade");if(a)a.click();}}]);}
 
 // ===== 선택 =====
 function select(type,i){A.sel={type,i};renderStage();redraw();renderInspector();
@@ -1264,7 +1280,8 @@ window.addEventListener("paste",async e=>{
 // 토큰(도형·이모지·로고) → 오버레이 요소로 추가
 function addTokenOverlay(token,url,name,scale){pushHistory();const tot=layout().total||10;
   const t=Math.min(curOut(),Math.max(0,tot-1));const end=Math.min(tot,t+4);   // 타임라인 밖으로 안 나가게
-  A.overlays.push({id:++cid,token:token,url:url,name:name,x:0.5,y:0.5,scale:scale||0.25,opacity:1,start:t,end:end,fade:0,kf:[]});
+  const xy=A._tokXY||{x:0.5,y:0.5};A._tokXY=null;   // 우클릭한 위치에 놓기(있으면)
+  A.overlays.push({id:++cid,token:token,url:url,name:name,x:xy.x,y:xy.y,scale:scale||0.25,opacity:1,start:t,end:end,fade:0,kf:[]});
   A.sel={type:"overlay",i:A.overlays.length-1};renderStage();redraw();renderInspector();save();
   $("#msgA").textContent=name+" 추가 @"+t.toFixed(1)+"s";}
 // 도형
