@@ -49,6 +49,20 @@
   details.adv summary:before{content:"⚙ ";}
   details.adv[open] summary:before{content:"⚙ ";}
   /* 가이드 모달 */
+  /* AI 제안 카드 */
+  .suggest{background:var(--lilac);border:1px solid #d9cffb;border-radius:12px;padding:9px;margin-bottom:10px}
+  .suggest .sgh{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#1f1d3d;margin:0 2px 7px}
+  .suggest .sgh>span:first-child{flex:1}
+  .btn.xs{padding:2px 7px;font-size:11px;border-radius:7px}
+  .sgcard{background:#fff;border:1px solid #e7defb;border-radius:9px;padding:8px 9px;margin-bottom:6px;animation:sgin .18s ease}
+  .sgcard:last-child{margin-bottom:0}
+  @keyframes sgin{from{opacity:0;transform:translateY(-3px)}to{opacity:1}}
+  .sgcard .t{font-size:12px;font-weight:700;color:#1f1d3d;display:flex;align-items:center;gap:5px}
+  .sgcard .d{font-size:11px;color:#5a5470;margin:2px 0 7px;line-height:1.35}
+  .sgcard .row{display:flex;gap:6px}
+  .sgcard .ap{flex:1;background:var(--accent);color:#fff;border:0;border-radius:7px;padding:6px;font-size:11px;font-weight:700;cursor:pointer}
+  .sgcard .ig{background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:6px 10px;font-size:11px;cursor:pointer}
+  .sgcard.busy{opacity:.6;pointer-events:none}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.66);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
   .modalcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;max-width:440px;width:100%}
   .modalcard h2{font-size:17px;margin:0 0 4px}
@@ -427,6 +441,12 @@
         <div class="addbar">
           <button class="btn add" id="addOpen">➕ 추가</button>
           <button class="btn ghost sm" id="aiOpen" title="AI에게 말로 시키기">🤖 AI에게</button>
+        </div>
+        <div id="suggestPanel" class="suggest hide">
+          <div class="sgh"><span>💡 AI 제안 <span id="sgCount" class="num"></span></span>
+            <button class="btn ghost xs" id="sgMore" title="AI에게 더 받기">🤖 더</button>
+            <button class="btn ghost xs" id="sgRefresh" title="다시 분석">↻</button></div>
+          <div id="suggestList"></div>
         </div>
         <div id="addMenu" class="addmenu hide">
           <div class="hint" style="margin:0 2px 8px;line-height:1.4">⏱ <b>타임라인에서 원하는 시각으로 옮긴 뒤</b> 추가하면 그 위치에 들어가요 · 영상 위에서 끌어 위치 · 막대로 언제~언제 · 빈 곳 우클릭=여기에 추가</div>
@@ -829,6 +849,7 @@ function initEditor(id,res,restore){
   loadWaveform(id);
   if(!restore&&INTAKE.memo)applyMemo(INTAKE.memo);
   try{if(!localStorage.getItem("oncut_seen"))$("#help").classList.remove("hide");}catch(e){}
+  try{renderSuggestions();}catch(e){}   // 💡 AI 제안 카드 자동 분석
 }
 function setStageAspect(){fitStage();}
 function fitStage(){const wrap=document.querySelector(".stagewrap"),st=$(".stage");if(!wrap||!st||!A)return;
@@ -1581,6 +1602,66 @@ function chatRule(s){pushHistory();const t=curOut();let msg="추가됨";
     A.texts.push({id:++cid,text:txt,x:0.5,y:0.45,fontSize:64,color:"#ffffff",outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:t,end:t+3,anim:"pop"});
     A.sel={type:"text",i:A.texts.length-1};}
   renderStage();redraw();renderInspector();save();$("#msgA").textContent=msg+" (규칙기반)";}
+// ===== AI 제안 카드 — A 상태를 분석해 한 클릭으로 적용 =====
+function bgUrl(id){return "/static/assets/"+id+".png";}
+function sgActiveNear(arr,a,b){return (arr||[]).some(o=>{const s=o.start!=null?o.start:0,e=o.end!=null?o.end:1e9;return e>a&&s<b;});}
+function buildSuggestions(){if(!A)return [];const tot=layout().total||0;const out=[];
+  const dis=A._sgDismiss||(A._sgDismiss={});
+  const mainVideo=A.clips.some(c=>{const m=A.srcMeta[c.src||"0"];return !m||m.kind==="video";});
+  if((A.cues||[]).length===0 && mainVideo)
+    out.push({id:"subs",icon:"💬",title:"자막이 없어요",desc:"AI가 음성을 듣고 자막을 자동으로 달아드려요.",
+      apply:async()=>{$("#msgA").textContent="AI가 자막 만드는 중… (조금 걸려요)";
+        const j=await(await fetch("/api/subtitles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:A.id})})).json();
+        if(j.error){$("#msgA").textContent=j.error;throw new Error(j.error);}
+        pushHistory();A.cues=(j.cues||[]).map(c=>({...c}));A.subsOn=true;$("#msgA").textContent="자막 "+A.cues.length+"개 생성 ✓";}});
+  const g=A.grade||{};const flat=(g.brightness??1)===1&&(g.contrast??1)===1&&(g.saturation??1)===1&&(g.warmth??0)===0;
+  if(flat && mainVideo)
+    out.push({id:"grade",icon:"🎨",title:"색감이 밋밋해요",desc:"'선명' 보정으로 화사하게 바꿀까요?",
+      apply:()=>{pushHistory();A.grade={brightness:1.03,contrast:1.12,saturation:1.35,warmth:0.1};}});
+  if((A.cues||[]).length>0 && (A.style.outlineW||0)<2)
+    out.push({id:"subread",icon:"👀",title:"자막이 잘 안 보일 수 있어요",desc:"외곽선을 넣어 또렷하게 만들까요?",
+      apply:()=>{pushHistory();A.style.outlineW=3;A.style.outlineColor="#000000";}});
+  if(tot>2 && !sgActiveNear(A.texts,0,1.2) && !sgActiveNear(A.overlays,0,1.2))
+    out.push({id:"intro",icon:"🎬",title:"인트로 제목 카드",desc:"시작 2.5초에 배경+제목을 넣어 시선을 잡아요.",
+      apply:()=>{pushHistory();const bid="bg_navy";
+        A.overlays.push({id:++cid,preset:bid,url:bgUrl(bid),name:"배경",x:.5,y:.5,scale:1,scaleH:1,opacity:1,start:0,end:2.5,fade:.3,kf:[]});
+        A.texts.push({id:++cid,text:"제목을 입력하세요",x:.5,y:.5,fontSize:72,color:"#ffffff",outlineColor:"#000000",outlineW:3,bold:true,font:A.style.font,start:0,end:2.5,anim:"pop"});
+        A.sel={type:"text",i:A.texts.length-1};}});
+  if(tot>3 && !sgActiveNear(A.overlays,tot-3.5,tot) && (PRESETS.buttons||[]).length)
+    out.push({id:"cta",icon:"🔔",title:"끝에 구독 유도가 없어요",desc:"마지막에 구독 버튼 + 딩 소리를 넣을까요?",
+      apply:()=>{pushHistory();const p=(PRESETS.buttons||[]).find(x=>x.id==="btn_subscribe")||PRESETS.buttons[0];const at=Math.max(0,tot-3.2);
+        A.overlays.push({id:++cid,preset:p.id,url:p.url,name:p.label,x:.78,y:.82,scale:.24,opacity:1,start:at,end:tot,fade:.3,kf:[]});
+        const s=(PRESETS.sounds||[]).find(x=>x.id==="sfx_ding");if(s)A.sfx.push({id:++cid,preset:s.id,url:s.url,name:s.label,at:at,volume:1});}});
+  if(A.format==="wide" || !A.format)
+    out.push({id:"shorts",icon:"📱",title:"쇼츠(9:16)로도 만들까요?",desc:"세로 화면으로 바꿔 숏폼에 올리기 좋게.",
+      apply:()=>{pushHistory();A.format="shorts";if(window.setStageAspect)setStageAspect();}});
+  const longi=A.clips.findIndex(c=>(c.srcEnd-c.srcIn)>60);
+  if(longi>=0)
+    out.push({id:"long"+longi,icon:"✂️",title:"긴 클립이 늘어져요",desc:"60초가 넘는 클립이 있어요. 선택해 줄게요 — 필요한 부분만 남기세요.",
+      apply:()=>{select("clip",longi);seekOut(layout().starts[longi]);}});
+  return out.filter(s=>!dis[s.id]);}
+function renderSuggestions(extra){const panel=$("#suggestPanel"),list=$("#suggestList");if(!panel||!A)return;
+  let cards=buildSuggestions();if(extra&&extra.length)cards=cards.concat(extra);
+  if(!cards.length){panel.classList.add("hide");return;}
+  panel.classList.remove("hide");$("#sgCount").textContent=cards.length;list.innerHTML="";
+  cards.forEach(s=>{const c=document.createElement("div");c.className="sgcard";
+    c.innerHTML=`<div class="t">${s.icon||"💡"} ${s.title}</div><div class="d">${s.desc||""}</div>
+      <div class="row"><button class="ap">✓ 적용</button><button class="ig">무시</button></div>`;
+    c.querySelector(".ap").onclick=async()=>{c.classList.add("busy");
+      try{await s.apply(c);}catch(e){c.classList.remove("busy");return;}
+      renderStage();redraw();renderInspector();save();renderSuggestions();};
+    c.querySelector(".ig").onclick=()=>{(A._sgDismiss||(A._sgDismiss={}))[s.id]=1;renderSuggestions();};
+    list.appendChild(c);});}
+const _sgR=$("#sgRefresh");if(_sgR)_sgR.onclick=()=>{A._sgDismiss={};renderSuggestions();};
+const _sgM=$("#sgMore");if(_sgM)_sgM.onclick=async()=>{$("#msgA").textContent="AI가 제안 생각 중…";
+  try{const r=await fetch("/api/assist",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({message:"이 영상을 더 좋게 만들 편집 2~3가지를 제안해줘",ctx:{now:curOut(),total:layout().total,format:A.format}})});
+    const j=await r.json();
+    if(j.actions&&j.actions.length){const ex=j.actions.map((a,k)=>({id:"ai"+k,icon:"🤖",title:a.title||a.reply||"AI 제안",
+      desc:a.desc||"AI가 제안한 편집을 적용합니다.",apply:()=>{pushHistory();applyActions([a]);}}));
+      renderSuggestions(ex);$("#msgA").textContent="AI 제안 "+ex.length+"개 추가";}
+    else $("#msgA").textContent="추가 제안이 없어요 (또는 AI 키 미설정)";
+  }catch(e){$("#msgA").textContent="AI 제안 실패 (키 미설정일 수 있어요)";}};
 function splitAt(){const v=$("#srcA"),i=A.playIdx,c=A.clips[i];if(!c)return;const t=v.currentTime;
   if(t<=c.srcIn+0.1||t>=c.srcEnd-0.1){$("#msgA").textContent="클립 안에서 자를 위치로 이동하세요";return;}
   pushHistory();const right={id:++cid,srcIn:t,srcEnd:c.srcEnd,transition:{type:"none",dur:0.5}};c.srcEnd=t;A.clips.splice(i+1,0,right);redraw();save();}

@@ -492,6 +492,23 @@ async def add_source(id: str = Form(...), file: UploadFile = File(...)) -> JSONR
                          "duration": info.get("duration"), "name": file.filename})
 
 
+@app.post("/api/subtitles")
+async def gen_subtitles(req: Request) -> JSONResponse:
+    """온디맨드 자막 자동생성 — 작업 메인 영상 ASR → cues. AI 제안카드 '자막 자동'."""
+    import asyncio
+    from . import asr, subtitle
+    body = await req.json()
+    job = JOBS.get(body.get("id"))
+    if not job or "path" not in job:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    try:                                       # asr.transcribe 내부에 asyncio.Lock 직렬화(§4)
+        tr = await asr.transcribe(job["path"], config.WHISPER_MODEL)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"자막 생성 실패: {e}"}, status_code=500)
+    cues = subtitle.build_cues(tr.get("segments") or [])
+    return JSONResponse({"cues": [{"start": c.start, "end": c.end, "text": c.text} for c in cues]})
+
+
 @app.get("/api/waveform")
 async def get_waveform(id: str) -> JSONResponse:
     """타임라인 파형(peaks) — 말/무음을 눈으로."""
