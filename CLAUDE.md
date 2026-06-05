@@ -216,6 +216,17 @@ capcut/
 - **의존명사 청크**: 한국어 자막 줄바꿈 시 "것/수/때/줄/뿐" 등 의존명사는 앞
   어절과 붙여 끊는다 (어절 단위로만 자르면 어색). subtitle.py에서 처리.
 - **content-hash 캐시**: 업로드 임시파일은 mtime이 매번 바뀜 → 내용 해시로 캐시.
+- **JS TDZ 함정(반복 발생)**: index.html 스크립트 **상단**(인증/설정 블록)에서 헬퍼
+  `$`(`const $=...`는 아래에 정의)를 **top-level로 즉시 호출**하면 `Cannot access '$'
+  before initialization`로 **스크립트 전체가 죽음**(게이트·init 안 뜸). 상단 즉시실행
+  코드는 `document.querySelector`로 우회. (함수 본문 안의 `$`는 나중에 호출돼 OK.)
+- **ffmpeg 회전(rotate) 박스**: 스핀(키프레임 회전)은 업스트림 `scale=eval=frame`이라야
+  각도가 매 프레임 갱신됨. ow/oh는 `rotw/roth`가 init에서 a=0로 고정평가→스핀 중 모서리
+  잘림 → **`hypot(iw,ih)` 상수 박스**로. 콤마 든 필터식은 `a='...'` 따옴표 필수.
+- **세로 리프레이밍 초점**: 9:16 커버크롭 `crop=tw:th:x='(in_w-tw)*fx'`로 인물 추적
+  (face.py가 Haar로 fx,fy 중앙값, 무얼굴=0.5). cv2=opencv-python-headless.
+- **계정/키 컨텍스트**: 미들웨어가 `auth.set_current(uid)` → `auth.eff_key(name)`이 본인키
+  →전역폴백 해석. 키 읽는 곳(llm._eff/stock._key)은 반드시 eff_key 경유(사용자 격리).
 
 ## 8. 자동화 계약 (★중요)
 - 사용자가 **"자동화로 진행"** 이라고 말하면: 그 시점부터 위 기획을 기준으로
@@ -224,4 +235,35 @@ capcut/
     사용자가 동기화·재생할 수 있게 안내한 뒤 계속 진행.
   - 비가역/위험 작업(sudo, 외부 전송)은 무-sudo 경로 우선.
 - "자동화로 진행" 전까지는 단계별로 확인받는다.
+
+## 10. 구현 현황 (v0.13 → v0.28, 2026-06) — 단일 진실 갱신
+> 기획(위)을 실제 구현으로 옮긴 결과. 새 작업 전 `bash tests/run_all.sh`로 회귀 검증 필수.
+
+**편집 요소/모션 (v0.13)**: 오버레이·텍스트 **회전(정적+스핀 키프레임)**·**자유비율
+(scaleH)**·회전 핸들·🔄회전/✨반짝임/💓두근 프리셋. 텍스트는 PNG 업라이트→rotate 필터로 통일.
+**입력 (v0.13.1~3)**: **Ctrl+V 붙여넣기**(PPT·캡처 그림/글), **우클릭 추가메뉴 전면**(글자·
+이모지·도형·에셋·소리·미디어), 타임라인 핸들 가시화·길이조절, 초기화면 소재 **연속 드래그 누적**.
+**진입 경로 (v0.14)**: `✏️ AI 없이 바로 편집기로`(/api/raw_open), 랜딩 히어로 축소.
+**무료 에셋 (v0.15)**: 내장 배경 16종(단색·그라데이션, assets.py) + Pexels/Pixabay 스톡
+(stock.py, /api/stock/*). 편집기 🎨 에셋 모달.
+**AI 적극개입 (v0.16~0.18)**: 우측 **💡 AI 제안 카드**(자막/색감/CTA/쇼츠/인트로…적용·무시),
+진입 시 **autoPolish**(색감·자막 자동), **✨전부 적용**, **📋 제목·해시태그**(llm.suggest_meta),
+**/api/subtitles**(온디맨드 ASR).
+**숏폼 (v0.19~0.22)**: `✂️ 긴영상→숏폼`(shortify.py 하이라이트=ASR밀도→오디오에너지→휴리스틱)
++ **🎯 여러 하이라이트**(멀티) + **인물추적 세로 리프레이밍**(face.py) + **🖼 자동 썸네일**(thumbmaker.py).
+**번역 (v0.23)**: 🌐 자막 8개국어(llm.translate_cues).
+**캡컷 핸드오프 (v0.24~25)**: draft.build_from_project(멀티트랙: 영상·자막SRT·텍스트·오버레이·
+오디오) → **bundle_and_zip**(미디어 동봉+경로 폴더기준 치환) → ZIP 다운로드(/api/capcut).
+**홈/템플릿 (v0.26)**: 🏠 홈(자동저장후 랜딩)+저장상태칩, 미리보기 클릭=클립선택, 배경띠 제거,
+에디터 🎨 템플릿 적용(/api/templates).
+**계정 (v0.27~28)**: **auth.py**(config/users.json, 무료 가입/로그인 쿠키세션 + 사용자별
+api_key). 잡·드래프트 **owner 격리**(본인 것만, 남의 것 403). **임베딩 2경로**: ①iframe
+`?embed=1&key=` ②REST `X-API-Key`. **계정별 키**(⚙ 내 설정, eff_key=본인키→전역폴백) →
+임베딩은 로그인만 연동. **어드민**(/api/admin): 계정관리·제공 템플릿 빌더(라이브 미리보기)·전역 기본키.
+
+**파일 추가**: auth.py, stock.py, shortify.py, face.py, thumbmaker.py, shapes.py.
+**검수 스위트**: `tests/smoke.py` + `tests/render_golden.py`(ffmpeg 픽셀) +
+`tests/e2e.mjs`(playwright /tmp/node_modules) → `bash tests/run_all.sh`. **모든 신기능은
+여기에 골든 추가**(회전·타임라인·붙여넣기·에셋·AI제안·숏폼·썸네일·번역·캡컷·계정·템플릿·키).
+`.gitignore`: `config/`(keys.json·users.json·templates/ — 비밀·런타임 비추적).
 ```
